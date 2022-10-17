@@ -1,7 +1,22 @@
-# 2.1 spectral density function
+import statsmodels.api as sm
+import autograd.numpy as np
+from autograd import grad, hessian, jacobian
+from numdifftools import Hessian as Hess_finite_diff
+from numpy.fft import fft
+import scipy.stats as sps
+from scipy.stats import multivariate_normal
+from scipy.optimize import minimize, Bounds
+import autograd.scipy.stats as sps_autograd
+import progressbar
+import pandas as pd
+import pickle
+import sys, os, platform
+
+
 def f_ARTFIMA(omega, phi, theta, var, d, lambda_):
-
-
+'''
+Spectral density function
+'''
     TFI = np.abs(1 - np.exp(-(lambda_ + 1j*omega)))**(-2*d)
     if phi.any():
         log_arg_phi = np.outer(-1j*omega,np.arange(1, len(phi)+1))
@@ -19,19 +34,18 @@ def f_ARTFIMA(omega, phi, theta, var, d, lambda_):
     return f
 
 
-
-# 2.2 Whittle likelihood function
 def whittle_log_likelihood(params, q, p, I_pg, TFI_term): #do ARTFIMA lambda and d in SD
-    '''
+'''Whittle likelihood function
+
     q: lag of AR
     p: lag of MA
     I_pg: periodogram of data
-    '''
-    if TFI_term: #ARTFIMA model
+'''
+    if TFI_term: # ARTFIMA model
         d = params[-1]
         lambda_ = np.exp(params[-3])
         var = np.exp(params[-2])
-    else: #ARMA model
+    else: # ARMA model
         d = 0
         lambda_ = 0
         var = np.exp(params[-1])
@@ -50,9 +64,11 @@ def whittle_log_likelihood(params, q, p, I_pg, TFI_term): #do ARTFIMA lambda and
     return log_like
 
 
-
-# 2.3 exact likelihood function
 def exact_log_likelihood_arma(data, params, q, p):
+'''
+exact likelihood function
+
+'''
     phi = np.array(reparam(params[:q]))
     theta = np.array(reparam(params[q:q+p], MA = True))
     var = np.exp(params[-1])
@@ -60,9 +76,11 @@ def exact_log_likelihood_arma(data, params, q, p):
     return ans
 
 
-
-# 2.4 prior distribution function(fractionated prior)
 def log_prior(params, mu, sd, Last_ARMA):
+'''
+Prior distribution function(fractionated prior)
+
+'''
 
     if (np.abs(params[:-Last_ARMA]) < 1).all():
         prior_process_params = -len(params[:-Last_ARMA])*np.log(2)
@@ -84,9 +102,6 @@ def log_prior(params, mu, sd, Last_ARMA):
 
 # 2.5 posterior distribution function
 log_p = lambda x: log_prior(x, 0, 1, Last_ARMA) + np.sum(whittle_log_likelihood(x, q, p, I_pg_shard, TFI_term))
-
-
-
 
 
 

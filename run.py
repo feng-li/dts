@@ -7,24 +7,7 @@ DistributedTimeSeries
 @author: Zi
 
 Last edited: 22/9/2022
-"""
-import statsmodels.api as sm
-import autograd.numpy as np
-from autograd import grad, hessian, jacobian
-from numdifftools import Hessian as Hess_finite_diff
-from numpy.fft import fft
-import matplotlib.pyplot as plt
-import seaborn as sns
-import scipy.stats as sps
-from scipy.stats import multivariate_normal
-from scipy.optimize import minimize, Bounds
-import autograd.scipy.stats as sps_autograd
-import progressbar
-import pandas as pd
-import pickle
-import sys, os, platform
 
-'''
 Consensus Monte Carlo Algorithm with spectral density and Whittle Likelihood for time series
 Line Table of Contents
   1. Divide data into G shards y_1...y_G.
@@ -54,7 +37,11 @@ Line Table of Contents
     3.2 transform partial autocorrelated params to ARMA params
 
 
-'''
+"""
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 gtol = 1e-4
 max_iter_optim = 500
 np.random.seed(123)
