@@ -1,2 +1,3 @@
 projects/ export-ignore
 .gitattributes export-ignore
+Makefile export-ignore
