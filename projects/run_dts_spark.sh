@@ -6,9 +6,6 @@
 # EC=16
 # EM=30g
 
-# Make a zip package
-# zip -r ../../dlsa.zip ../dlsa.py ../R/dlsa_alasso_func.R
-
 MODEL_DESCRIPTION=$1
 
 # Tiny executors: one executor per core
@@ -41,8 +38,6 @@ do
                   --executor-cores ${EC}    \
                   --conf spark.rpc.message.maxSize=2000 \
                   $DIR/${MODEL_FILE}.py ${quantile}
-#                  $DIR/${MODEL_FILE}.py "$@"
-#                  > ${OUTPATH}${MODEL_DESCRIPTION}_${MODEL_FILE}.NE${executors}.EC${EC}_${tic0}.out 2> ${OUTPATH}${MODEL_DESCRIPTION}_${MODEL_FILE}.NE${executors}.EC${EC}_${tic0}.log
     toc=`date +%s`
     runtime=$((toc-tic))
     echo ${MODEL_FILE}.NE${executors}.EC${EC} finished, "Time used (s):" $runtime
