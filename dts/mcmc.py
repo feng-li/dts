@@ -65,8 +65,7 @@ def whittle_log_likelihood(params, q, p, I_pg, TFI_term): #do ARTFIMA lambda and
 
 
 def exact_log_likelihood_arma(data, params, q, p):
-'''
-exact likelihood function
+'''Exact likelihood function
 
 '''
     phi = np.array(reparam(params[:q]))
