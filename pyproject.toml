@@ -26,6 +26,7 @@ dynamic = ["version"]
 py-modules = ["dts"]
 
 [tool.setuptools_scm]
+version_scheme = "release-branch-semver"
 write_to = "dts/_version.py"
 fallback_version = "0.0.1"
 
