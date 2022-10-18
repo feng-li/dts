@@ -27,6 +27,7 @@ py-modules = ["dts"]
 
 [tool.setuptools_scm]
 write_to = "dts/_version.py"
+fallback_version = "0.0.1"
 
 [tool.poetry]
 authors = [
