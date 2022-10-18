@@ -10,6 +10,8 @@ requires = [
          "numdifftools >=0.9.40",
          "scipy >= 1.9.2",
          "pandas >= 1.4.0",
+         "matplotlib >=3.6.0",
+         "seaborn >= 0.11.0"
          ]
 build-backend = "setuptools.build_meta"
 
@@ -32,6 +34,7 @@ authors = [
     "Zixuan <zixuan.wang-2@student.uts.edu.au>",
     "Matias Quiroz <quiroz.matias@gmail.com>"
     ]
+
 repository = "https://github.com/feng-li/dts"
 keywords = ["Spark", "MCMC", "MapReduce"]
 license = "MIT"

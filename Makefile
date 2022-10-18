@@ -4,4 +4,4 @@ zip:
 	git archive --output=dts.zip HEAD
 
 install:
-	pip install .
+	pip install --editable .

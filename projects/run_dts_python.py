@@ -1,12 +1,8 @@
-# -*- coding: utf-8 -*-
 """
 DistributedTimeSeries
 
     Spectral parallel MCMC
 
-@author: Zi
-
-Last edited: 22/9/2022
 
 Consensus Monte Carlo Algorithm with spectral density and Whittle Likelihood for time series
 Line Table of Contents
@@ -41,6 +37,7 @@ Line Table of Contents
 
 import matplotlib.pyplot as plt
 import seaborn as sns
+import autograd.numpy as np
 
 gtol = 1e-4
 max_iter_optim = 500
@@ -52,17 +49,9 @@ np.random.seed(123)
 
 # 1.1 define data and model
 
-if platform.system() == 'Darwin':
-    proj_path = '/Users/' + os.getenv("USER") + '/OneDrive - UTS/Project 1/'
-elif platform.system() == 'Windows':
-    proj_path = '/Users/' + os.getlogin() + '/OneDrive - UTS/Project 1/'
-else:
-    raise ValueError()
-
-#data = np.load(proj_path + 'Datasets/Vancouver_AR2_TFI_MA1.npy')
-data = np.loadtxt(proj_path + 'Datasets/SimARTFIMA11_short.txt')
-
-
+proj_path = "."
+# data = np.load(proj_path + 'Datasets/Vancouver_AR2_TFI_MA1.npy')
+data = np.loadtxt(proj_path + '/../dts/data/SimARTFIMA11.txt')
 
 n = len(data)
 q = 1
