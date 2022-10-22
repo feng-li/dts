@@ -3,7 +3,6 @@ DistributedTimeSeries
 
     Spectral parallel MCMC
 
-
 Consensus Monte Carlo Algorithm with spectral density and Whittle Likelihood for time series
 Line Table of Contents
   1. Divide data into G shards y_1...y_G.
@@ -34,10 +33,16 @@ Line Table of Contents
 
 
 """
+import os
 
 import matplotlib.pyplot as plt
 import seaborn as sns
 import autograd.numpy as np
+from numpy.fft import fft
+import scipy.stats as sps
+from autograd import grad, hessian, jacobian
+from scipy.optimize import minimize, Bounds
+from tqdm import tqdm  # progressbar
 
 gtol = 1e-4
 max_iter_optim = 500
@@ -49,9 +54,18 @@ np.random.seed(123)
 
 # 1.1 define data and model
 
-proj_path = "."
+project_path = "~/code/dts/projects"
+
+# temporary setting to allow for importing `dts` from parent directory.
+import sys, pathlib
+wrkDir = pathlib.Path(project_path).expanduser()
+codeDir = str(wrkDir.parent)
+sys.path.insert(1, codeDir)
+
+from dts.mcmc import *
+
 # data = np.load(proj_path + 'Datasets/Vancouver_AR2_TFI_MA1.npy')
-data = np.loadtxt(proj_path + '/../dts/data/SimARTFIMA11.txt')
+data = np.loadtxt(os.path.expanduser(project_path) + '/../dts/data/SimARTFIMA11.txt')
 
 n = len(data)
 q = 1
@@ -105,8 +119,11 @@ params = params + sps.norm.rvs(0, 0.1, size = len(params))
 
 omega_full = 2*np.pi*np.arange(1,int(n/2)+1)/len(data)
 
+# 2.5 posterior distribution function
 #2.9.2 find own MAP(paramsStar), as start point
+log_p = lambda x: log_prior(x, 0, 1, Last_ARMA, TFI_term) / G + np.sum(whittle_log_likelihood(x, q, p, I_pg_shard, TFI_term, omega_shard))
 def obj(params): return -log_p(params)
+
 jcb = grad(obj)
 r_logp, H_logp = grad(log_p), hessian(log_p)
 hs = hessian(obj)
@@ -124,11 +141,7 @@ else:
 
 bnds = Bounds(lb, ub, keep_feasible=True)
 
-
-
-
-bar = progressbar.progressbar(range(G))
-for ind in bar:
+for ind in tqdm(range(G)):
     # 2.9.1 each worker gets its shard of data(periodgram)
     data_shard = data[S[ind]]
     I_pg_shard = I_pg_full[I[ind]]
@@ -150,11 +163,8 @@ for ind in bar:
     proposal_width = (2.38/np.sqrt(n_params))*sigma
 
 
-
-
-
     # 2.9.3 run sampling, jackknife bias correction and restore all results as draws
-    draw, log_pi_g, Acceptance = sampler(q, p, data_shard, I_pg_shard, TFI_term, n_samples, exact=exact_L)
+    draw, log_pi_g, Acceptance = sampler(q, p, data_shard, I_pg_shard, TFI_term, omega_shard, n_samples, paramsStar, proposal_width, Burn_in, exact=exact_L)
 
 
     '''

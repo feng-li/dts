@@ -23,7 +23,7 @@ Distributed time series modeling with Apache Spark
     - `quantmod >= 0.4.13`
     - `magrittr >= 1.5`
 
-# Usage
+# Usage on Spark
 
 ## `dts`
 Run the [PySpark](https://spark.apache.org/docs/latest/api/python/index.html) code to forecast the time series of the demo data.
@@ -36,5 +36,11 @@ or simply run
   PYSPARK_PYTHON=/usr/local/bin/python3.7 ARROW_PRE_0_15_IPC_FORMAT=1 spark-submit ./run_darima.py
 ```
 **Note**: `ARROW_PRE_0_15_IPC_FORMAT=1` is added to instruct `PyArrow >= 0.15.0` to use the legacy IPC format with the older Arrow Java that is in Spark 2.3.x and 2.4.x.
+
+# Native Python demo
+
+``` sh
+    python3 projects/run_dts_python.py
+```
 
 # References

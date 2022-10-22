@@ -1,22 +1,21 @@
 import statsmodels.api as sm
 import autograd.numpy as np
-from autograd import grad, hessian, jacobian
-from numdifftools import Hessian as Hess_finite_diff
-from numpy.fft import fft
+# from numdifftools import Hessian as Hess_finite_diff
 import scipy.stats as sps
 from scipy.stats import multivariate_normal
-from scipy.optimize import minimize, Bounds
 import autograd.scipy.stats as sps_autograd
-import progressbar
 import pandas as pd
 import pickle
 import sys, os, platform
 
+from tqdm import tqdm
+
+
 
 def f_ARTFIMA(omega, phi, theta, var, d, lambda_):
-'''
-Spectral density function
-'''
+    '''
+    Spectral density function
+    '''
     TFI = np.abs(1 - np.exp(-(lambda_ + 1j*omega)))**(-2*d)
     if phi.any():
         log_arg_phi = np.outer(-1j*omega,np.arange(1, len(phi)+1))
@@ -34,13 +33,14 @@ Spectral density function
     return f
 
 
-def whittle_log_likelihood(params, q, p, I_pg, TFI_term): #do ARTFIMA lambda and d in SD
-'''Whittle likelihood function
+def whittle_log_likelihood(params, q, p, I_pg, TFI_term, omega_shard):
+    '''Whittle likelihood function
 
+    #do ARTFIMA lambda and d in SD
     q: lag of AR
     p: lag of MA
     I_pg: periodogram of data
-'''
+    '''
     if TFI_term: # ARTFIMA model
         d = params[-1]
         lambda_ = np.exp(params[-3])
@@ -65,21 +65,20 @@ def whittle_log_likelihood(params, q, p, I_pg, TFI_term): #do ARTFIMA lambda and
 
 
 def exact_log_likelihood_arma(data, params, q, p):
-'''Exact likelihood function
+    '''Exact likelihood function
 
-'''
+    '''
     phi = np.array(reparam(params[:q]))
     theta = np.array(reparam(params[q:q+p], MA = True))
     var = np.exp(params[-1])
     ans = sm.tsa.innovations.arma_loglike(data, phi, theta, sigma2=var)
     return ans
 
+def log_prior(params, mu, sd, Last_ARMA, TFI_term):
+    '''
+    Prior distribution function(fractionated prior)
 
-def log_prior(params, mu, sd, Last_ARMA):
-'''
-Prior distribution function(fractionated prior)
-
-'''
+    '''
 
     if (np.abs(params[:-Last_ARMA]) < 1).all():
         prior_process_params = -len(params[:-Last_ARMA])*np.log(2)
@@ -95,20 +94,15 @@ Prior distribution function(fractionated prior)
         prior_lambda_params = 0
         prior_var_params = sps_autograd.norm.logpdf(params[-1], loc = mu, scale = sd)
 
-    return (prior_process_params + prior_d_params + prior_lambda_params + prior_var_params)/G
-
-
-
-# 2.5 posterior distribution function
-log_p = lambda x: log_prior(x, 0, 1, Last_ARMA) + np.sum(whittle_log_likelihood(x, q, p, I_pg_shard, TFI_term))
-
+    return (prior_process_params + prior_d_params + prior_lambda_params + prior_var_params)
 
 
 # 2.6 partial autocorrelation transform function
 def reparam(params, MA = False):
     """
     Transforms params to induce stationarity/invertability.
-    Takes as input parameters in the partial auto-correlation parameterization and returns parameters that are on the ordinary parameterization.
+    Takes as input parameters in the partial auto-correlation parameterization and returns parameters
+    that are on the ordinary parameterization.
     """
     newparams = np.array(params, copy=True)
     tmp = np.array(params, copy=True)
@@ -127,7 +121,14 @@ def reparam(params, MA = False):
 
 
 # 2.7 Metropolis algorithm
-def sampler(q, p, data, I_pg, TFI_term, n_samples, params_prior_mu=0, params_prior_sd=1., exact = False):
+def sampler(q, p, data, I_pg, TFI_term, omega_shard, n_samples, paramsStar, proposal_width, Burn_in, params_prior_mu=0, params_prior_sd=1., exact = False):
+
+    if TFI_term:
+        n_params = q + p + 3
+        Last_ARMA = 3
+    else:
+        n_params = q + p + 1
+        Last_ARMA = 1
 
     params_init = paramsStar
     params_current = params_init
@@ -139,16 +140,16 @@ def sampler(q, p, data, I_pg, TFI_term, n_samples, params_prior_mu=0, params_pri
     if exact:
         log_likelihood_current = exact_log_likelihood_arma(data, params_current, q, p)
     else:
-        log_likelihood_current = whittle_log_likelihood(params_current, q, p, I_pg, TFI_term)
+        log_likelihood_current = whittle_log_likelihood(params_current, q, p, I_pg, TFI_term, omega_shard)
 
     # Current log prior
-    log_prior_current = log_prior(params_current, params_prior_mu, params_prior_sd, Last_ARMA)
+    log_prior_current = log_prior(params_current, params_prior_mu, params_prior_sd, Last_ARMA, TFI_term)
 
     #Current log posterior
     log_p_current = np.sum(log_likelihood_current) + np.sum(log_prior_current)
 
-    bar = progressbar.progressbar(range(n_samples))
-    for i in bar:
+    # bar = progressbar.progressbar(range(n_samples))
+    for i in tqdm(range(n_samples)):
 
         # New position:
         params_proposal = sps.multivariate_normal.rvs(mean = params_current, cov = proposal_width)
@@ -158,12 +159,12 @@ def sampler(q, p, data, I_pg, TFI_term, n_samples, params_prior_mu=0, params_pri
             if exact:
                 log_likelihood_proposal = exact_log_likelihood_arma(data, params_proposal, q, p)
             else:
-                log_likelihood_proposal = whittle_log_likelihood(params_proposal, q, p, I_pg, TFI_term)
+                log_likelihood_proposal = whittle_log_likelihood(params_proposal, q, p, I_pg, TFI_term, omega_shard)
 
         else:
             log_likelihood_proposal = -np.inf
         # Proposal log prior
-        log_prior_proposal = log_prior(params_proposal, params_prior_mu, params_prior_sd, Last_ARMA)
+        log_prior_proposal = log_prior(params_proposal, params_prior_mu, params_prior_sd, Last_ARMA, TFI_term)
 
         # Proposal log posterior
         log_p_proposal = np.sum(log_likelihood_proposal) + np.sum(log_prior_proposal)
