@@ -34,12 +34,24 @@ data_path = os.path.expanduser(project_path) + '/../dts/data/SimARTFIMA11.txt'
 sdf = spark.read.csv(data_path)
 
 
-# Global parameters
+## Model and MCMC configurations
+conf_model = {
+    "q": 1,
+    "p": 1,
+    "TFI_term": False,
+    "exact_L": True
+}
 
-partition_num = 10
+conf_mcmc = {
+    "partition_num": 10, # Number of groups
+    "n_samples" = 15000,
+    "Burn_in" = int(5000)
+}
 
 # Add partition id
-sdf = insert_partition_id(sdf=sdf, partition_num=partition_num)
+sdf = insert_partition_id(sdf=sdf, partition_num=conf_mcmc["partition_num"])
+
+
 
 
 

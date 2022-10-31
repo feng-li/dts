@@ -81,6 +81,8 @@ else:
 
 
 # 1.2 the acutal data is periodgram of the original dataset
+## IMPORTANT: We do not have a Spark FFT function. So given a long time series, we need some efficient tool to make an FFT transformation
+
 def p_gram(x):  # Construct Periodogram
     id = int(np.floor((len(x)-1)/2))
     return np.square(np.abs(x[0:(id)]))/(2 * np.pi * len(x))

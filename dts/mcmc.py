@@ -121,7 +121,8 @@ def reparam(params, MA = False):
 
 
 # 2.7 Metropolis algorithm
-def sampler(q, p, data, I_pg, TFI_term, omega_shard, n_samples, paramsStar, proposal_width, Burn_in, params_prior_mu=0, params_prior_sd=1., exact = False):
+def sampler(q, p, data, I_pg, TFI_term, omega_shard, n_samples, paramsStar,
+            proposal_width, Burn_in, params_prior_mu=0, params_prior_sd=1., exact = False):
 
     if TFI_term:
         n_params = q + p + 3
