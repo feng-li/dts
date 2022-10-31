@@ -35,12 +35,10 @@ Line Table of Contents
 """
 import os
 
-import matplotlib.pyplot as plt
-import seaborn as sns
 import autograd.numpy as np
 from numpy.fft import fft
 import scipy.stats as sps
-from autograd import grad, hessian, jacobian
+from autograd import grad, hessian
 from scipy.optimize import minimize, Bounds
 from tqdm import tqdm  # progressbar
 

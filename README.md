@@ -33,7 +33,7 @@ Run the [PySpark](https://spark.apache.org/docs/latest/api/python/index.html) co
 ```
 or simply run
 ```py
-  PYSPARK_PYTHON=/usr/local/bin/python3.7 ARROW_PRE_0_15_IPC_FORMAT=1 spark-submit ./run_darima.py
+  PYSPARK_PYTHON=/usr/local/bin/python3.9 ARROW_PRE_0_15_IPC_FORMAT=1 spark-submit ./run_darima.py
 ```
 **Note**: `ARROW_PRE_0_15_IPC_FORMAT=1` is added to instruct `PyArrow >= 0.15.0` to use the legacy IPC format with the older Arrow Java that is in Spark 2.3.x and 2.4.x.
 
