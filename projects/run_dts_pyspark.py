@@ -1,8 +1,8 @@
-import sys, pathlib, time
+import os, sys, pathlib, time
 
 # Only used for interactive mode
 if hasattr(sys, 'ps1'):
-    import os, findspark
+    import findspark
     findspark.init() # Make sure you have $SPARK_HOME set
     libdir = pathlib.Path(os.getcwd()).parent
     sys.path.append(libdir)
@@ -23,8 +23,9 @@ spark.conf.set("spark.sql.execution.arrow.pyspark.fallback.enabled", "true")
 # spark.conf.set("spark.sql.shuffle.partitions", 10)
 # print(spark.conf.get("spark.sql.shuffle.partitions"))
 
-# dts functions
+from numpy.fft import fft
 
+# dts functions
 from dts import *
 
 
@@ -52,7 +53,17 @@ conf_mcmc = {
 sdf = insert_partition_id(sdf=sdf, partition_num=conf_mcmc["partition_num"])
 
 
+# One dimensional FFT and periodogram FIXME: This should be done within Spark
+def fft_periodogram(pdf):  # Construct Periodogram
+    """Make an one-dimensional FFT and obtain the periodogram
 
+    """
+    fft_values = fft(pdf.to_numpy())
+    id = int(np.floor((len(fft_values)-1)/2))
+    out = np.square(np.abs(fft_values[0:(id)]))/(2 * np.pi * len(fft_values))
+    return out
+
+I_pg_full = fft_periodogram(sdf.toPandas())
 
 
 import pandas as pd
