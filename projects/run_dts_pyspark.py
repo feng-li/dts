@@ -44,8 +44,8 @@ conf_model = {
 
 conf_mcmc = {
     "partition_num": 10, # Number of groups
-    "n_samples" = 15000,
-    "Burn_in" = int(5000)
+    "n_samples": 15000,
+    "Burn_in": int(5000)
 }
 
 # Add partition id
