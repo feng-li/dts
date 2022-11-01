@@ -53,17 +53,16 @@ conf_mcmc = {
 sdf = insert_partition_id(sdf=sdf, partition_num=conf_mcmc["partition_num"])
 
 
-# One dimensional FFT and periodogram FIXME: This should be done within Spark
-def fft_periodogram(pdf):  # Construct Periodogram
-    """Make an one-dimensional FFT and obtain the periodogram
+# One dimensional FFT and periodogram FIXME: This should be done within Spark. The current method should only be used if the resulting NumPy ndarray is expected to be small.
 
+def fft_periodogram(array):  # Construct Periodogram
+    """Make an one-dimensional FFT and obtain the periodogram
     """
-    fft_values = fft(pdf.to_numpy())
+    fft_values = fft(array)
     id = int(np.floor((len(fft_values)-1)/2))
     out = np.square(np.abs(fft_values[0:(id)]))/(2 * np.pi * len(fft_values))
     return out
-
-I_pg_full = fft_periodogram(sdf.toPandas())
+I_pg_full = fft_periodogram(sdf.to_numpy())
 
 
 import pandas as pd
