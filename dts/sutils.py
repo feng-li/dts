@@ -1,17 +1,20 @@
+import spark
 from pyspark.sql import functions as F
-from pyspark.sql.functions import udf, pandas_udf, PandasUDFType, monotonically_increasing_id
 
 
-
-def insert_partition_id(sdf, partition_num):
+def insert_group_id(sdf, n_groups, method):
     """
     Simple function that adds consecutive partition ids for a Spark DataFrame.
 
     """
-    partition_num = 100
-    sample_size = sdf.count()
-    sample_size_per_partition = int(sample_size / partition_num)
-    sdf = sdf.withColumn("id", F.monotonically_increasing_id()+1)
-    sdf = sdf.withColumn("partition_id", F.ceil(sdf.id / partition_num))
+    if method == "ts":
+        sample_size = sdf.count()
+        id = spark.range(sample_size) # Spark DataFrame with an 'id' column 0,1,2,...
+        sdf = sdf.join(id)
+        sample_size_per_partition = int(sample_size/n_groups)
+        sdf = sdf.withColumn("group_id", F.floor(sdf.id/sample_size_per_partition))
 
-    return(sdf)
+    elif method == "random":
+        sdf = sdf.withColumn("group_id", F.monotonicall_increasing_id() % n_groups)
+
+    return sdf

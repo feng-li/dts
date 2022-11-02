@@ -1,4 +1,4 @@
-import os, sys, pathlib, time
+import os, sys, pathlib
 
 # Only used for interactive mode
 if hasattr(sys, 'ps1'):
@@ -44,17 +44,17 @@ conf_model = {
 }
 
 conf_mcmc = {
-    "partition_num": 10, # Number of groups
+    "n_groups": 10, # Number of groups
     "n_samples": 15000,
     "Burn_in": int(5000)
 }
 
 # Add partition id
-sdf = insert_partition_id(sdf=sdf, partition_num=conf_mcmc["partition_num"])
+sdf = insert_group_id(sdf=sdf, n_groups=conf_mcmc["n_groups"], method="ts")
 
 
-# One dimensional FFT and periodogram FIXME: This should be done within Spark. The current method should only be used if the resulting NumPy ndarray is expected to be small.
-
+# One dimensional FFT and periodogram FIXME: This should be done within Spark. The current
+# method should only be used if the resulting NumPy ndarray is expected to be small.
 def fft_periodogram(array):  # Construct Periodogram
     """Make an one-dimensional FFT and obtain the periodogram
     """
