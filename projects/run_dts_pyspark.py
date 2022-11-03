@@ -10,13 +10,17 @@ if hasattr(sys, 'ps1'):
 
 ## Pyspark setup
 import pyspark
-conf = pyspark.SparkConf().setAppName("Spark DTS App")
+conf = pyspark.SparkConf().setAppName("Spark DTS App").setAll(
+    [('spark.executor.memory', '8g'),
+     ('spark.executor.cores', '1'),
+     ('spark.cores.max', '16'),
+     ('spark.driver.memory', '32g')])
 spark = pyspark.sql.SparkSession.builder.config(conf=conf).getOrCreate()
 spark.sparkContext.setLogLevel("WARN")  # "DEBUG", "ERROR"
 
 # Enable Arrow-based columnar data transfers. Ensure that PyArrow is installed and available on all cluster nodes with `pip install pyarrow`
-spark.conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
-spark.conf.set("spark.sql.execution.arrow.pyspark.fallback.enabled", "true")
+# spark.conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
+# spark.conf.set("spark.sql.execution.arrow.pyspark.fallback.enabled", "true")
 # https://docs.azuredatabricks.net/spark/latest/spark-sql/udf-python-pandas.html#setting-arrow-batch-size
 # spark.conf.set("spark.sql.execution.arrow.maxRecordsPerBatch", 10000) # default
 
@@ -52,7 +56,6 @@ conf_mcmc = {
 # Add partition id
 sdf = insert_group_id(sdf=sdf, n_groups=conf_mcmc["n_groups"], method="ts")
 
-
 # One dimensional FFT and periodogram FIXME: This should be done within Spark. The current
 # method should only be used if the resulting NumPy ndarray is expected to be small.
 def fft_periodogram(array):  # Construct Periodogram
@@ -62,7 +65,12 @@ def fft_periodogram(array):  # Construct Periodogram
     id = int(np.floor((len(fft_values)-1)/2))
     out = np.square(np.abs(fft_values[0:(id)]))/(2 * np.pi * len(fft_values))
     return out
-I_pg_full = fft_periodogram(sdf.to_numpy())
+
+# I_pg_full = fft_periodogram(sdf.select("_c0").to_Pandas().to_numpy())
+import numpy as np
+I_pg_full = fft_periodogram(np.loadtxt(data_path))
+
+
 
 
 import pandas as pd

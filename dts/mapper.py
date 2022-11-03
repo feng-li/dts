@@ -4,8 +4,10 @@ def mappler(pdf):
     """
 
     # Parameters setting
-    TFI_term = model_conf['TFI_term']
-    G = mcmc_conf['partition_num']
+    TFI_term = conf_model['TFI_term']
+    G = conf_model['partition_num']
+    exact_L = conf_model['exact_L']
+
     data = pdf.to_numpy()
 
 
@@ -30,8 +32,8 @@ def mappler(pdf):
     # 2.5 posterior distribution function
     #2.9.2 find own MAP(paramsStar), as start point
     log_p = lambda x: log_prior(x, 0, 1, Last_ARMA, TFI_term) / G + np.sum(whittle_log_likelihood(x, q, p, I_pg_shard, TFI_term, omega_shard))
-    def obj(params): return -log_p(params)
 
+    def obj(params): return -log_p(params)
     jcb = grad(obj)
 
     r_logp, H_logp = grad(log_p), hessian(log_p)
