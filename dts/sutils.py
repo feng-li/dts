@@ -1,4 +1,5 @@
 from pyspark.sql import functions as F
+from pyspark.sql import SparkSession
 
 
 def insert_group_id(sdf, n_groups, method):
@@ -6,6 +7,8 @@ def insert_group_id(sdf, n_groups, method):
     Simple function that adds consecutive partition ids for a Spark DataFrame.
 
     """
+    spark = SparkSession.builder.getOrCreate()
+
     if method == "ts":
         sample_size = sdf.count()
         id = spark.range(sample_size) # Spark DataFrame with an 'id' column 0,1,2,...

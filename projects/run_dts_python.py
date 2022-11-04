@@ -141,7 +141,8 @@ else:
 
 bnds = Bounds(lb, ub, keep_feasible=True)
 
-for ind in tqdm(range(G)):
+# for ind in tqdm(range(G)):
+for ind in tqdm(range(2)):
     # 2.9.1 each worker gets its shard of data(periodgram)
     data_shard = data[S[ind]]
     I_pg_shard = I_pg_full[I[ind]]

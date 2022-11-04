@@ -75,13 +75,9 @@ def mappler(pdf):
     # 2.9.3 run sampling, jackknife bias correction and restore all results as draws
     draw, log_pi_g, Acceptance = sampler(q, p, data_shard, I_pg_shard, TFI_term, omega_shard, n_samples, paramsStar, proposal_width, Burn_in, exact=exact_L)
 
-    draws.append(draw)
-    log_pi.append(log_pi_g)
+    # Make a final Pandas DataFrame
+    out_np = np.column_stack((draw, log_pi_g, Acceptance))
+    out_pd_colnames = [??? , 'log_p', 'Acceptance']
+    out_pd = pd.DataFrame(out_np, out_pd_colnames)
 
-    # 2.9.4 calculate sample variance(coveriance) of each shard, inverse them as the weights.
-    w.append(np.linalg.inv(np.cov(draw, rowvar=False)))
-
-    AcceptanceRate = np.mean(Acceptance)
-    print('\nAcceptanceRate:', AcceptanceRate)
-
-    return out
+    return out_pd

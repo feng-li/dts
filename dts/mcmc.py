@@ -149,9 +149,9 @@ def sampler(q, p, data, I_pg, TFI_term, omega_shard, n_samples, paramsStar,
     #Current log posterior
     log_p_current = np.sum(log_likelihood_current) + np.sum(log_prior_current)
 
-    # bar = progressbar.progressbar(range(n_samples))
-    for i in tqdm(range(n_samples)):
-
+    # for i in tqdm(range(n_samples)):
+    for i in range(n_samples):
+        # No inner progressbar
         # New position:
         params_proposal = sps.multivariate_normal.rvs(mean = params_current, cov = proposal_width)
         if (np.abs(params_proposal[:-Last_ARMA]) < 1).all():
@@ -183,4 +183,5 @@ def sampler(q, p, data, I_pg, TFI_term, omega_shard, n_samples, paramsStar,
 
         posterior_samples[i, :] =  params_current
         log_p[i] = log_p_current
-    return posterior_samples[Burn_in:], log_p[Burn_in:].T, Acceptance
+    # return posterior_samples[Burn_in:], log_p[Burn_in:].T, Acceptance
+    return posterior_samples[Burn_in:], log_p[Burn_in:].T, Acceptance[Burn_in:]

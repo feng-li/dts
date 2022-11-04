@@ -11,10 +11,11 @@ if hasattr(sys, 'ps1'):
 ## Pyspark setup
 import pyspark
 conf = pyspark.SparkConf().setAppName("Spark DTS App").setAll(
-    [('spark.executor.memory', '8g'),
+    [('spark.ui.enabled', 'false'),
+     ('spark.executor.memory', '16g'),
      ('spark.executor.cores', '1'),
-     ('spark.cores.max', '16'),
-     ('spark.driver.memory', '32g')])
+     ('spark.cores.max', '12'),
+     ('spark.driver.memory', '64g')])
 spark = pyspark.sql.SparkSession.builder.config(conf=conf).getOrCreate()
 spark.sparkContext.setLogLevel("WARN")  # "DEBUG", "ERROR"
 
@@ -30,7 +31,8 @@ spark.sparkContext.setLogLevel("WARN")  # "DEBUG", "ERROR"
 from numpy.fft import fft
 
 # dts functions
-from dts import *
+from dts.sutils import insert_group_id
+from dts.mapper import mappler
 
 
 ## Data source
@@ -70,7 +72,8 @@ def fft_periodogram(array):  # Construct Periodogram
 import numpy as np
 I_pg_full = fft_periodogram(np.loadtxt(data_path))
 
-
+schema_mapper =
+mp = sdf.groupBy("group_id").applyInPandas(mapper, schema=schema_mapper)
 
 
 import pandas as pd
