@@ -1,15 +1,18 @@
 def mappler(pdf):
     """
-    MCMC sampler for each data shard for Spark. The input and output should be both pandas DataFrames
+    MCMC sampler for each data shard for Spark. The input and output should be both pandas
+    DataFrames
     """
 
     # Parameters setting
     TFI_term = conf_model['TFI_term']
     G = conf_model['partition_num']
+    q = conf_model['q']
+    p = conf_model['p']
     exact_L = conf_model['exact_L']
 
     data = pdf.to_numpy()
-
+    n = len(data)
 
     if TFI_term:
         n_params = q + p + 3
@@ -18,16 +21,16 @@ def mappler(pdf):
         n_params = q + p + 1
         Last_ARMA = 1
 
-    #Sampling
-    draws = []
-    log_pi = []
-    Acceptance = np.zeros((n_samples*G, 1))
-    w = []
+    # Sampling
+    # draws = []
+    # log_pi = []
+    # Acceptance = np.zeros((n_samples, 1))
+    # w = []
 
     params = 0.01*np.ones(n_params)
-    params = params + sps.norm.rvs(0, 0.1, size = len(params))
+    params = params + sps.norm.rvs(0, 0.1, size=len(params))
 
-    omega_full = 2*np.pi*np.arange(1,int(n/2)+1)/len(data)
+    omega_full = 2*np.pi*np.arange(1, int(n/2)+1)/n
 
     # 2.5 posterior distribution function
     #2.9.2 find own MAP(paramsStar), as start point
@@ -39,7 +42,7 @@ def mappler(pdf):
     r_logp, H_logp = grad(log_p), hessian(log_p)
     hs = hessian(obj)
 
-    lb = [-1]*len(params) # Constrains it to the stationary region after using the partial autocorrelation parameterisation.
+    lb = [-1]*len(params)  # Constrains it to the stationary region after using the partial autocorrelation parameterisation.
     ub = [1]*len(params)
 
 
@@ -64,12 +67,12 @@ def mappler(pdf):
             I_pg_shard = p_gram_shard(fft(data_shard))
             omega_shard = 2*np.pi*np.arange(1,int(len(data_shard)/2)+1)/len(data_shard)
 
-    res = minimize(obj, bounds=bnds, jac = jcb, hess = hs, method = 'trust-constr', x0 = params)
+    res = minimize(obj, bounds=bnds, jac=jcb, hess=hs, method='trust-constr', x0=params)
     paramsStar = res.x
     assert(res.success)
     sigma = np.linalg.inv(-H_logp(paramsStar))
 
-    print('\nMAP%s' %(ind+1), paramsStar)
+    # print('\nMAP%s' %(ind+1), paramsStar)
     proposal_width = (2.38/np.sqrt(n_params))*sigma
 
     # 2.9.3 run sampling, jackknife bias correction and restore all results as draws
@@ -77,7 +80,7 @@ def mappler(pdf):
 
     # Make a final Pandas DataFrame
     out_np = np.column_stack((draw, log_pi_g, Acceptance))
-    out_pd_colnames = [??? , 'log_p', 'Acceptance']
+    out_pd_colnames = ["group_id", "log_p", 'log_p', 'Acceptance']
     out_pd = pd.DataFrame(out_np, out_pd_colnames)
 
     return out_pd

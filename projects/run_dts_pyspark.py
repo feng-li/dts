@@ -19,7 +19,8 @@ conf = pyspark.SparkConf().setAppName("Spark DTS App").setAll(
 spark = pyspark.sql.SparkSession.builder.config(conf=conf).getOrCreate()
 spark.sparkContext.setLogLevel("WARN")  # "DEBUG", "ERROR"
 
-# Enable Arrow-based columnar data transfers. Ensure that PyArrow is installed and available on all cluster nodes with `pip install pyarrow`
+# Enable Arrow-based columnar data transfers. Ensure that PyArrow is installed and
+# available on all cluster nodes with `pip install pyarrow`
 # spark.conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
 # spark.conf.set("spark.sql.execution.arrow.pyspark.fallback.enabled", "true")
 # https://docs.azuredatabricks.net/spark/latest/spark-sql/udf-python-pandas.html#setting-arrow-batch-size
