@@ -1,11 +1,15 @@
-import os, sys, pathlib
+import os, sys, pathlib, logging
+logging.basicConfig(level=logging.INFO)
 
-# Only used for interactive mode
+## Interactive mode
 if hasattr(sys, 'ps1'):
     import findspark
     findspark.init() # Make sure you have $SPARK_HOME set
+    logging.info("Interactive session: pyspark module imported via findspark")
+
     libdir = pathlib.Path(os.getcwd()).parent
     sys.path.append(libdir)
+    logging.info("Interactive session: dts module imported in " + str(libdir))
 
 
 ## Pyspark setup
@@ -14,7 +18,7 @@ conf = pyspark.SparkConf().setAppName("Spark DTS App").setAll(
     [('spark.ui.enabled', 'false'),
      ('spark.executor.memory', '16g'),
      ('spark.executor.cores', '1'),
-     ('spark.cores.max', '12'),
+     ('spark.cores.max', '64'),
      ('spark.driver.memory', '64g')])
 spark = pyspark.sql.SparkSession.builder.config(conf=conf).getOrCreate()
 spark.sparkContext.setLogLevel("WARN")  # "DEBUG", "ERROR"
@@ -33,7 +37,7 @@ from numpy.fft import fft
 
 # dts functions
 from dts.sutils import insert_group_id
-from dts.mapper import mappler
+from dts.mapper import mapper
 
 
 ## Data source
@@ -59,8 +63,7 @@ conf_mcmc = {
 # Add partition id
 sdf = insert_group_id(sdf=sdf, n_groups=conf_mcmc["n_groups"], method="ts")
 
-# One dimensional FFT and periodogram FIXME: This should be done within Spark. The current
-# method should only be used if the resulting NumPy ndarray is expected to be small.
+# One dimensional FFT and periodogram FIXME: This should be done within Spark. The current method should only be used if the resulting NumPy ndarray is expected to be small.
 def fft_periodogram(array):  # Construct Periodogram
     """Make an one-dimensional FFT and obtain the periodogram
     """
@@ -74,6 +77,8 @@ import numpy as np
 I_pg_full = fft_periodogram(np.loadtxt(data_path))
 
 schema_mapper =
+
+
 mp = sdf.groupBy("group_id").applyInPandas(mapper, schema=schema_mapper)
 
 

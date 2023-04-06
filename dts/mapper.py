@@ -1,4 +1,11 @@
-def mappler(pdf):
+import autograd.numpy as np
+import scipy.stats as sps
+from autograd import grad, hessian
+from scipy.optimize import minimize, Bounds
+
+from dts.mcmc import log_prior, whittle_log_likelihood, sampler
+
+def mapper(pdf, conf_model):
     """
     MCMC sampler for each data shard for Spark. The input and output should be both pandas
     DataFrames
@@ -33,7 +40,7 @@ def mappler(pdf):
     omega_full = 2*np.pi*np.arange(1, int(n/2)+1)/n
 
     # 2.5 posterior distribution function
-    #2.9.2 find own MAP(paramsStar), as start point
+    # 2.9.2 find own MAP(paramsStar), as start point
     log_p = lambda x: log_prior(x, 0, 1, Last_ARMA, TFI_term) / G + np.sum(whittle_log_likelihood(x, q, p, I_pg_shard, TFI_term, omega_shard))
 
     def obj(params): return -log_p(params)
@@ -44,7 +51,6 @@ def mappler(pdf):
 
     lb = [-1]*len(params)  # Constrains it to the stationary region after using the partial autocorrelation parameterisation.
     ub = [1]*len(params)
-
 
     if TFI_term:
         lb[-3:] = [-30, -30, -30]
