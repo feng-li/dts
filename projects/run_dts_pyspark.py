@@ -73,7 +73,6 @@ def fft_periodogram(array):  # Construct Periodogram
     return out
 
 # I_pg_full = fft_periodogram(sdf.select("_c0").to_Pandas().to_numpy())
-import numpy as np
 I_pg_full = fft_periodogram(np.loadtxt(data_path))
 
 schema_mapper =

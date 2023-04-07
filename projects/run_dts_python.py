@@ -90,7 +90,7 @@ I_pg_full = p_gram(fft(data))
 
 
 
-#1.3 divide periodgram:I_PG into G shards
+# 1.3 divide periodgram:I_PG into G shards
 G = 10   # Number of groups
 I = [item + np.arange(0, int(np.floor((n-1)/2)), G) for item in range(G)]
 S = [int(item*(n-1)/(G)) + np.arange(0, int((n-1)/(G))) for item in range(G)]
