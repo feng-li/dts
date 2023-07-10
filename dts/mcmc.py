@@ -117,21 +117,16 @@ def reparam(params, MA = False):
     return newparams
 
 
-
 # 2.7 Metropolis algorithm
-def sampler_exact(q, p, data, n_samples, paramsStar, proposal_width, Burn_in,
-                  params_prior_mu=0, params_prior_sd=1.):
-    return sampler(q, p, data, I_pg=None, TFI_term=None, omega_shard=None,
-                   n_samples, paramsStar, proposal_width, Burn_in, params_prior_mu=0, params_prior_sd=1., exact = True)
+def sampler_exact(q, p, data, n_samples, paramsStar, proposal_width, Burn_in, params_prior_mu=0, params_prior_sd=1.):
+    return sampler(q=q, p=p, data=data, I_pg=None, TFI_term=None, omega_shard=None, n_samples=n_samples, paramsStar=paramsStar, proposal_width=proposal_width, Burn_in=Burn_in, params_prior_mu=0, params_prior_sd=1., exact = True)
 
-def sampler_whittle(q, p, I_pg, TFI_term, omega_shard, n_samples, paramsStar,
-                    proposal_width, Burn_in, params_prior_mu=0, params_prior_sd=1.):
-    return sampler(q, p, data=None, I_pg, TFI_term, omega_shard,
-                   n_samples, paramsStar, proposal_width, Burn_in, params_prior_mu=0, params_prior_sd=1., exact = False)
 
-def sampler(q, p, data, I_pg, TFI_term, omega_shard, n_samples, paramsStar,
-            proposal_width, Burn_in, params_prior_mu=0, params_prior_sd=1.,
-            exact = False):
+def sampler_whittle(q, p, I_pg, TFI_term, omega_shard, n_samples, paramsStar, proposal_width, Burn_in, params_prior_mu=0, params_prior_sd=1.):
+    return sampler(q=q, p=p, data=None, I_pg=I_pg, TFI_term=TFI_term, omega_shard=omega_shard, n_samples=n_samples, paramsStar=paramsStar, proposal_width=proposal_width, Burn_in=Burn_in, params_prior_mu=0, params_prior_sd=1., exact = False)
+
+
+def sampler(q, p, data, I_pg, TFI_term, omega_shard, n_samples, paramsStar, proposal_width, Burn_in, params_prior_mu=0, params_prior_sd=1., exact = False):
 
     if TFI_term:
         n_params = q + p + 3
