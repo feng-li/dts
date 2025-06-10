@@ -25,7 +25,7 @@ from pyspark.sql import functions as F
 # from your_module import q, p, TFI_term, exact_L, n_samples
 
 # Distributed FFT implementation using Spark RDD
-import numpy as _np, math, cmath
+import numpy as _nxxp, math, cmath
 
 
 def compute_subfft(kv, P, M):
@@ -33,9 +33,10 @@ def compute_subfft(kv, P, M):
     # sort by r = (global_idx - p)//P
     items = sorted(items, key=lambda x: (x[0] - p)//P)
     vals = [v for _, v in items]
-    fft_vals = _np.fft.fft(vals)
+    fft_vals = _nxxp.fft.fft(vals)
     # emit (global index k, original shard p, fft value)
     return [(r + p*M, p, fft_vals[r]) for r in range(M)]
+
 
 def DFFT(df, column: str, numShards: int):
     """
@@ -86,7 +87,7 @@ def DFFT(df, column: str, numShards: int):
         r, seq = grouped_pair
         seq_sorted = sorted(seq, key=lambda x: x[0])
         vals = [val for _, val in seq_sorted]
-        fft_vals = _np.fft.fft(vals)
+        fft_vals = _nxxp.fft.fft(vals)
         for q, fft_v in enumerate(fft_vals):
             yield (q*M + r, q, fft_v)
 
@@ -158,9 +159,19 @@ def exact_log_likelihood_arma(data: np.ndarray, params: np.ndarray,
     """
     Exact Gaussian ARMA log-likelihood using innovations algorithm.
     """
+
+    # detach your data from the AD ArrayBox before handing it to statsmodels
+    if hasattr(params, "_value"):
+        # pull out the underlying ndarray
+        params = np.asarray(params._value, dtype=float)
+    else:
+        params = np.asarray(params, dtype=float)
+
+
     phi = reparam(params[:q], MA=False) if q>0 else np.array([])
     theta = reparam(params[q:q+p], MA=True) if p>0 else np.array([])
     var = np.exp(params[-1])
+
     return sm.tsa.innovations.arma_loglike(data, phi, theta, sigma2=var)
 
 
@@ -190,7 +201,10 @@ def reparam(params: np.ndarray, MA: bool = False) -> np.ndarray:
     """
     Transform partial autocorrelation params to AR/MA coefficients.
     """
-    newp = params.copy().astype(float)
+    # breakpoint()
+    # newp = params.copy().astype(float)
+    newp = np.array(params, dtype=float)
+
     for j in range(1, len(params)):
         tmp = newp[:j].copy()
         if not MA:
@@ -228,8 +242,9 @@ def sampler(q: int, p: int,
     lp = log_prior(theta_map, 0, 1, Last_ARMA, TFI_term, G=1)
     logp_current = np.sum(ll) + lp
 
-    bar = progressbar.progressbar(range(n_samples))
-    for i in bar:
+    for i in range(n_samples):
+        proposal_cov = make_pd_eigclip(proposal_cov) # Force symmetric and positive definite.
+
         theta_prop = multivariate_normal.rvs(theta_map, proposal_cov)
         # check stationarity
         if (np.abs(theta_prop[:-Last_ARMA]) < 1).all():
@@ -272,7 +287,10 @@ def mapper(
     burn = conf_mcmc['Burn_in']
 
     shard_id = int(pdf['shard_id'].iat[0])
-    data = pdf['value'].to_numpy()
+    # data = pdf['value'].to_numpy()
+
+    # Convert a complex vector from two columns
+    data = pdf["real"].values + 1j * pdf["imag"].values
 
     # Precompute periodogram if needed
     if not exact:
@@ -302,7 +320,9 @@ def mapper(
                    method='trust-constr')
     theta_map = res.x
     cov_map = np.linalg.inv(-hessian(logp_fn)(theta_map))
+
     prop_cov = (2.38/np.sqrt(n_params))*cov_map
+    prop_cov = (prop_cov + prop_cov.T)/2 # Force positive definite
 
     draws, logp_trace, accepts = sampler(q_,p_,data,I_pg,TFI,omega,
                                          n_samps,theta_map,prop_cov,burn,
@@ -310,33 +330,25 @@ def mapper(
     acc_rate = np.mean(accepts)
 
     return pd.DataFrame({
-        'group_id': [shard_id],
+        'shard_id': [shard_id],
         'samples': [draws],
         'log_p': [logp_trace[0]],
         'acceptance_rate': [acc_rate]
     })
 
 
-def insert_group_id(sdf, n_groups, method):
-    """
-    Simple function that adds consecutive partition ids for a Spark DataFrame.
-
-    """
-    if method == "ts":
-        sample_size = sdf.count()
-        id = spark.range(sample_size) # Spark DataFrame with an 'id' column 0,1,2,...
-        sdf = sdf.join(id)
-        sample_size_per_partition = int(sample_size/n_groups)
-        sdf = sdf.withColumn("group_id", F.floor(sdf.id/sample_size_per_partition))
-
-    elif method == "random":
-        sdf = sdf.withColumn("group_id", F.monotonicall_increasing_id() % n_groups)
-
-    return sdf
-
-
 # def main():
 #   main()
+def make_pd_eigclip(A, delta=1e-8):
+    """
+    Force all eigenvalues of A to be >= delta by clipping.
+    """
+    # symmetrize
+    A = (A + A.T) / 2
+    vals, vecs = np.linalg.eigh(A)
+    vals_clipped = np.clip(vals, delta, None)
+    return (vecs * vals_clipped) @ vecs.T
+
 
 if __name__ == "__main__":
     from pyspark.sql import SparkSession
@@ -350,39 +362,36 @@ if __name__ == "__main__":
     G = 2**5  # 2^power with DFFT
     periodogram_df = DFFT(raw_df, 'y',  numShards=G)
 
-    raise OSError
-
     conf_model = {'TFI_term': True,
                   'partition_num': G,
                   'q': 1,
                   'p': 1,
-                  'exact_L': True}
+                  'exact_L': False}
     conf_mcmc = {'n_samples': 5000,
                  'Burn_in': 1000}
 
     schema = StructType([
-        StructField('group_id', IntegerType(), False),
+        StructField('shard_id', IntegerType(), False),
         StructField('samples', ArrayType(ArrayType(DoubleType())), False),
         StructField('log_p', DoubleType(), False),
         StructField('acceptance_rate', DoubleType(), False),
     ])
 
+
+    # pdf = periodogram_df.toPandas().iloc[:300,:]
+    # mapper(pdf, conf_model,conf_mcmc)
+    # raise Exception("Debug.")
+
     @pandas_udf(schema, functionType=PandasUDFType.GROUPED_MAP)
     def shard_mcmc(pdf):
         return mapper(pdf, conf_model, conf_mcmc)
 
+    result_df = periodogram_df.groupBy('shard_id').apply(shard_mcmc).orderBy('shard_id')
 
-    result_df = (
-        periodogram_df
-        .groupBy('shard_id')
-        .apply(shard_mcmc)
-        .orderBy('group_id')
-    )
 
     res_pdf = result_df.toPandas()
     print(res_pdf.head())
 
-    spark.stop()
 
 
 # if __name__ == "__main__":
