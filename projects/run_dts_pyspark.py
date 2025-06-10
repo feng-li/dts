@@ -4,28 +4,18 @@ Spectral Parallel MCMC using Spark, DFFT, and integrated modeling functions
 """
 
 from typing import Any, Dict
-import os
-import sys
-import platform
-import pickle
 
 import pandas as pd
 import autograd.numpy as np
-from autograd import grad, hessian, jacobian
+from autograd import grad, hessian
 import autograd.scipy.stats as sps_autograd
 from scipy.stats import multivariate_normal
-import scipy.stats as sps
 from scipy.optimize import minimize, Bounds
 from numpy.fft import fft
 import statsmodels.api as sm
-from numdifftools import Hessian as Hess_finite_diff
-from pyspark.sql import functions as F
-
-# Import model settings ???
-# from your_module import q, p, TFI_term, exact_L, n_samples
 
 # Distributed FFT implementation using Spark RDD
-import numpy as _nxxp, math, cmath
+import numpy as _np, math, cmath
 
 
 def compute_subfft(kv, P, M):
@@ -33,7 +23,7 @@ def compute_subfft(kv, P, M):
     # sort by r = (global_idx - p)//P
     items = sorted(items, key=lambda x: (x[0] - p)//P)
     vals = [v for _, v in items]
-    fft_vals = _nxxp.fft.fft(vals)
+    fft_vals = _np.fft.fft(vals)
     # emit (global index k, original shard p, fft value)
     return [(r + p*M, p, fft_vals[r]) for r in range(M)]
 
@@ -87,7 +77,7 @@ def DFFT(df, column: str, numShards: int):
         r, seq = grouped_pair
         seq_sorted = sorted(seq, key=lambda x: x[0])
         vals = [val for _, val in seq_sorted]
-        fft_vals = _nxxp.fft.fft(vals)
+        fft_vals = _np.fft.fft(vals)
         for q, fft_v in enumerate(fft_vals):
             yield (q*M + r, q, fft_v)
 
