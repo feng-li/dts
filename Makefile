@@ -5,3 +5,7 @@ zip:
 
 install:
 	pip install --editable .
+
+update-requirements:
+	pip install pipreqs -U
+	pipreqs ./ --force
