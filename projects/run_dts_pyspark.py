@@ -32,74 +32,78 @@ def compute_subfft(kv, P, M):
     p, items = kv
     # sort by r = (global_idx - p)//P
     items = sorted(items, key=lambda x: (x[0] - p)//P)
-    vals = [v for _, v in items]            # length M
-    fft_vals = _np.fft.fft(vals)             # M-point DFT
-    # emit (k = r + p*M, Y_p[r])
-    return [(r + p*M, fft_vals[r]) for r in range(M)]
-
+    vals = [v for _, v in items]
+    fft_vals = _np.fft.fft(vals)
+    # emit (global index k, original shard p, fft value)
+    return [(r + p*M, p, fft_vals[r]) for r in range(M)]
 
 def DFFT(df, column: str, numShards: int):
     """
-    Distributed FFT over a Spark DataFrame with column 'value'.
-    Returns an RDD of complex FFT values.
+    Distributed FFT over DataFrame column `column`, across `numShards` logical shards.
+    Returns a Spark DataFrame with columns: shard_id, real, imag
     """
+    spark = SparkSession.builder.getOrCreate()
     rdd = df.rdd.map(lambda row: row[column])
     N = rdd.count()
     P = numShards
 
-    # assert (P & (P-1)) == 0 and N % P == 0
-    # before doing any work, validate P and N:
-    if (P & (P - 1)) != 0:
+    # 1) validate and drop tail if needed
+    if (P & (P-1)) != 0:
         raise ValueError(f"P must be a power of two, but got P={P!r}")
-
     rem = N % P
     if rem > 0:
-        # zip each element with its global index
-        print(f"N must be divisible by P, the last {rem} values will be discarded.")
+        print(f"Warning: dropping last {rem} elements so N is divisible by P")
         rdd = (
             rdd
-            .zipWithIndex()                             # yields (value, idx) with idx from 0…N-1
-            .filter(lambda vi: vi[1] < N - rem)         # keep only those with idx < N-rem
-            .map(lambda vi: vi[0])                      # strip off the index
+            .zipWithIndex()
+            .filter(lambda vi: vi[1] < N - rem)
+            .map(lambda vi: vi[0])
         )
+    M = (N - rem) // P
 
-
-    M = N // P
-    # 1) M-point FFT on each of the P interleaved slices
+    # 2) first-stage, shard-wise M-point FFT
     subffts = (
         rdd
-        .zipWithIndex()                                        # (value, idx)
-        .map(lambda vi: (vi[1] % P, (vi[1], vi[0])))            # (p, (idx, val))
+        .zipWithIndex()                                          # (value, idx)
+        .map(lambda vi: (vi[1] % P, (vi[1], vi[0])))              # (p, (global_idx, val))
         .groupByKey(numPartitions=P)
-        .flatMap(lambda kv: compute_subfft(kv, P, M))          # (k, Y_p[r])
+        .flatMap(lambda kv: compute_subfft(kv, P, M))            # (k, p, complex)
         .cache()
     )
-    # 2) post-twiddle by W_N^(p·r)
-    twiddled = subffts.map(lambda kv: (
-        kv[0],
-        kv[1] * cmath.exp(-2j * math.pi * (kv[0]//M)*(kv[0]%M) / N)
+
+    # 3) twiddle
+    twiddled = subffts.map(lambda triple: (
+        triple[0],  # k
+        triple[1],  # p
+        triple[2] * cmath.exp(-2j * math.pi * (triple[0]//M)*(triple[0]%M) / N)
     ))
-    # 3) gather values and do length-P FFT
-    final_rdd = (
-        twiddled
-        .map(lambda kv: (kv[0] % M, (kv[0]//M, kv[1])))  # → (r, (p, val))
-        .groupByKey(numPartitions=M)
-        .flatMap(lambda kv: [
-            (q*M + kv[0], fft_val)
-            for q, fft_val in enumerate(
-                _np.fft.fft([v for _, v in sorted(kv[1])])
-            )
-        ])
-        .sortByKey()
-        .map(lambda kv: kv[1])
+
+    # 4) second-stage, length-P FFT along each r
+    paired = twiddled.map(lambda triple: (triple[0] % M, (triple[1], triple[2])))
+    grouped = paired.groupByKey(numPartitions=M)
+
+    def second_stage(grouped_pair):
+        r, seq = grouped_pair
+        seq_sorted = sorted(seq, key=lambda x: x[0])
+        vals = [val for _, val in seq_sorted]
+        fft_vals = _np.fft.fft(vals)
+        for q, fft_v in enumerate(fft_vals):
+            yield (q*M + r, q, fft_v)
+
+    final = (
+        grouped
+        .flatMap(second_stage)   # yields (global_k, shard_id=q, complex)
+        .sortBy(lambda triple: triple[0])  # sort by global index
     )
 
-    # Spark DF could not handle complex
-    df = spark.createDataFrame(
-        final_rdd.map(lambda c: (float(c.real), float(c.imag))),
-        schema=["real", "imag"])
+    # 5) build DataFrame carrying shard_id, real, imag
+    row_rdd = final.map(lambda triple: (
+        int(triple[1]),           # shard_id = q
+        float(triple[2].real),     # real part
+        float(triple[2].imag)      # imag part
+    ))
 
-    return df
+    return spark.createDataFrame(row_rdd, schema=["shard_id", "real", "imag"])
 
 
 def f_ARTFIMA(omega: np.ndarray, phi: np.ndarray, theta: np.ndarray,
@@ -343,7 +347,7 @@ if __name__ == "__main__":
 
     raw_df = spark.read.csv("data/SimARTFIMA11.csv", header=True, inferSchema=True)
 
-    G = 2**2  # 2^power with DFFT
+    G = 2**5  # 2^power with DFFT
     periodogram_df = DFFT(raw_df, 'y',  numShards=G)
 
     raise OSError
