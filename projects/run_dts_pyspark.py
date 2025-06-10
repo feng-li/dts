@@ -19,14 +19,14 @@ from scipy.optimize import minimize, Bounds
 from numpy.fft import fft
 import statsmodels.api as sm
 from numdifftools import Hessian as Hess_finite_diff
-import progressbar
+from pyspark.sql import functions as F
 
 # Import model settings ???
 # from your_module import q, p, TFI_term, exact_L, n_samples
 
 # Distributed FFT implementation using Spark RDD
 import numpy as _np, math, cmath
-from pyspark.sql import SparkSession
+
 
 def compute_subfft(kv, P, M):
     p, items = kv
@@ -38,15 +38,32 @@ def compute_subfft(kv, P, M):
     return [(r + p*M, fft_vals[r]) for r in range(M)]
 
 
-def DFFT(df, numShards: int):
+def DFFT(df, column: str, numShards: int):
     """
     Distributed FFT over a Spark DataFrame with column 'value'.
     Returns an RDD of complex FFT values.
     """
-    rdd = df.rdd.map(lambda row: row['value'])
+    rdd = df.rdd.map(lambda row: row[column])
     N = rdd.count()
     P = numShards
-    assert (P & (P-1)) == 0 and N % P == 0
+
+    # assert (P & (P-1)) == 0 and N % P == 0
+    # before doing any work, validate P and N:
+    if (P & (P - 1)) != 0:
+        raise ValueError(f"P must be a power of two, but got P={P!r}")
+
+    rem = N % P
+    if rem > 0:
+        # zip each element with its global index
+        print(f"N must be divisible by P, the last {rem} values will be discarded.")
+        rdd = (
+            rdd
+            .zipWithIndex()                             # yields (value, idx) with idx from 0…N-1
+            .filter(lambda vi: vi[1] < N - rem)         # keep only those with idx < N-rem
+            .map(lambda vi: vi[0])                      # strip off the index
+        )
+
+
     M = N // P
     # 1) M-point FFT on each of the P interleaved slices
     subffts = (
@@ -63,7 +80,7 @@ def DFFT(df, numShards: int):
         kv[1] * cmath.exp(-2j * math.pi * (kv[0]//M)*(kv[0]%M) / N)
     ))
     # 3) gather values and do length-P FFT
-    final = (
+    final_rdd = (
         twiddled
         .map(lambda kv: (kv[0] % M, (kv[0]//M, kv[1])))  # → (r, (p, val))
         .groupByKey(numPartitions=M)
@@ -76,11 +93,17 @@ def DFFT(df, numShards: int):
         .sortByKey()
         .map(lambda kv: kv[1])
     )
-    return final
+
+    # Spark DF could not handle complex
+    df = spark.createDataFrame(
+        final_rdd.map(lambda c: (float(c.real), float(c.imag))),
+        schema=["real", "imag"])
+
+    return df
 
 
-def f_ARTFIMA(omega: np.ndarray, phi: np.ndarray, theta: np.ndarray,(omega: np.ndarray, phi: np.ndarray, theta: np.ndarray,
-             var: float, d: float, lambda_: float) -> np.ndarray:
+def f_ARTFIMA(omega: np.ndarray, phi: np.ndarray, theta: np.ndarray,
+              var: float, d: float, lambda_: float) -> np.ndarray:
     """
     Spectral density for (A)RTFIMA.
     """
@@ -290,19 +313,48 @@ def mapper(
     })
 
 
-def main():
+def insert_group_id(sdf, n_groups, method):
+    """
+    Simple function that adds consecutive partition ids for a Spark DataFrame.
+
+    """
+    if method == "ts":
+        sample_size = sdf.count()
+        id = spark.range(sample_size) # Spark DataFrame with an 'id' column 0,1,2,...
+        sdf = sdf.join(id)
+        sample_size_per_partition = int(sample_size/n_groups)
+        sdf = sdf.withColumn("group_id", F.floor(sdf.id/sample_size_per_partition))
+
+    elif method == "random":
+        sdf = sdf.withColumn("group_id", F.monotonicall_increasing_id() % n_groups)
+
+    return sdf
+
+
+# def main():
+#   main()
+
+if __name__ == "__main__":
     from pyspark.sql import SparkSession
     from pyspark.sql.functions import pandas_udf, PandasUDFType
     from pyspark.sql.types import StructType, StructField, IntegerType, ArrayType, DoubleType
 
     spark = SparkSession.builder.appName("SpectralParallelMCMC").getOrCreate()
 
-    raw_df = spark.read.csv("/mnt/data/SimARTFIMA11.csv", header=True, inferSchema=True)
-    G = 10
-    periodogram_df = DFFT(raw_df, numShards=G)
+    raw_df = spark.read.csv("data/SimARTFIMA11.csv", header=True, inferSchema=True)
 
-    conf_model = {'TFI_term': TFI_term, 'partition_num': G, 'q': q, 'p': p, 'exact_L': exact_L}
-    conf_mcmc = {'n_samples': n_samples, 'Burn_in': 1000}
+    G = 2**2  # 2^power with DFFT
+    periodogram_df = DFFT(raw_df, 'y',  numShards=G)
+
+    raise OSError
+
+    conf_model = {'TFI_term': True,
+                  'partition_num': G,
+                  'q': 1,
+                  'p': 1,
+                  'exact_L': True}
+    conf_mcmc = {'n_samples': 5000,
+                 'Burn_in': 1000}
 
     schema = StructType([
         StructField('group_id', IntegerType(), False),
@@ -314,6 +366,7 @@ def main():
     @pandas_udf(schema, functionType=PandasUDFType.GROUPED_MAP)
     def shard_mcmc(pdf):
         return mapper(pdf, conf_model, conf_mcmc)
+
 
     result_df = (
         periodogram_df
@@ -328,5 +381,5 @@ def main():
     spark.stop()
 
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()
