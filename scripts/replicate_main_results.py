@@ -8,6 +8,7 @@ import csv
 import json
 import os
 import sys
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -16,6 +17,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib-dts")
 os.environ.setdefault("XDG_CACHE_HOME", "/tmp/dts-cache")
+
+_complex_warning = getattr(np, "ComplexWarning", None)
+if _complex_warning is None:
+    _complex_warning = getattr(getattr(np, "exceptions", object), "ComplexWarning", Warning)
+warnings.filterwarnings("ignore", category=_complex_warning)
+warnings.filterwarnings("ignore", message=".*where.*without.*out.*", category=UserWarning)
 
 import matplotlib.pyplot as plt
 

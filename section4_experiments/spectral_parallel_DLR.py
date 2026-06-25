@@ -11,11 +11,20 @@ This code samples DLR AR2 via spectral method, results are used to draw Table 1.
 
 import matplotlib, time, copy
 import matplotlib.pyplot as plt
-import autograd.numpy as np
+import os
+
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
+from jax import config as jax_config
+
+jax_config.update("jax_enable_x64", True)
+
+import jax.numpy as np
+import numpy as onp
 from numpy.fft import fft
-import autograd.scipy.stats as sps_autograd
-from autograd import grad, hessian
-from autograd.scipy.special import i0 as i0_autograd
+import jax.scipy.stats as sps_jax
+from jax import grad, hessian
+from jax.scipy.special import i0 as i0_jax
 import scipy.stats as sps
 from scipy.optimize import minimize, Bounds, basinhopping
 from scipy.linalg import toeplitz, solve_toeplitz, solve
@@ -34,7 +43,7 @@ from operator import itemgetter
 gtol = 1e-4 
 max_iter_optim = 500 
 seed = 10
-np.random.seed(seed)
+onp.random.seed(seed)
 
 
 if platform.system() == 'Darwin':
@@ -48,8 +57,8 @@ else:
 #data = np.load(proj_path + 'Datasets/DC-BATS_AR2_LM.npy')
 #x_sim, y_sim, residual_sim = data[0], data[1], data[2]
 
-x_sim = np.load('/Users/zixuanwang/Library/CloudStorage/OneDrive-UTS/Project 1/results/draws/spark/Ou_LM/LM/X.npy')
-y_sim = np.load('/Users/zixuanwang/Library/CloudStorage/OneDrive-UTS/Project 1/results/draws/spark/Ou_LM/LM/y.npy')
+x_sim = onp.load('/Users/zixuanwang/Library/CloudStorage/OneDrive-UTS/Project 1/results/draws/spark/Ou_LM/LM/X.npy')
+y_sim = onp.load('/Users/zixuanwang/Library/CloudStorage/OneDrive-UTS/Project 1/results/draws/spark/Ou_LM/LM/y.npy')
 
 
 
@@ -115,14 +124,14 @@ def f_ARTFIMA(id, phi, theta, var, d, lambda_):
     
     FI_term = np.abs(1 - np.exp(-(lambda_ + 1j*omega)))**(-2*d)
 
-    if phi.any(): 
+    if len(phi):
         log_arg_phi = np.outer(-1j*omega,np.arange(1, len(phi)+1))
         vv1 = 1/(1 - np.sum(phi * np.exp(log_arg_phi),1))
     else:
         vv1 = 1
 
     
-    if theta.any():
+    if len(theta):
         log_arg_theta = np.outer(-1j*omega,np.arange(1, len(theta)+1))
         vv2 = (1 + np.sum(theta * np.exp(log_arg_theta),1))
     else: 
@@ -180,22 +189,23 @@ def whittle_log_likelihood(params, y, x, q, p, TFI_term, I_pg=None, ind=None, re
 
 def log_prior(params, mu=0, sd=1):
     
-    if (np.abs(params[:-Last_ARMA]) < 1).all():
-        prior_process_params = -len(params[:-Last_ARMA])*np.log(2)
-    else:      
-        prior_process_params = -np.inf
+    prior_process_params = np.where(
+        np.all(np.abs(params[:-Last_ARMA]) < 1.0),
+        -len(params[:-Last_ARMA])*np.log(2),
+        -np.inf,
+    )
     
-    prior_beta_params = sps_autograd.norm.logpdf(params[-2], loc = mu, scale = sd)
+    prior_beta_params = sps_jax.norm.logpdf(params[-2], loc = mu, scale = sd)
     
     
     if TFI_term:
-        prior_d_params = sps_autograd.norm.logpdf(params[-1], loc = mu, scale = sd)
-        prior_lambda_params = sps_autograd.norm.logpdf(params[-3], loc = mu, scale = 100)
-        prior_var_params = sps_autograd.norm.logpdf(params[-2], loc = mu, scale = sd)
+        prior_d_params = sps_jax.norm.logpdf(params[-1], loc = mu, scale = sd)
+        prior_lambda_params = sps_jax.norm.logpdf(params[-3], loc = mu, scale = 100)
+        prior_var_params = sps_jax.norm.logpdf(params[-2], loc = mu, scale = sd)
     else:
         prior_d_params = 0
         prior_lambda_params = 0
-        prior_var_params = sps_autograd.norm.logpdf(params[-1], loc = mu, scale = sd)  
+        prior_var_params = sps_jax.norm.logpdf(params[-1], loc = mu, scale = sd)
         
     return (prior_process_params + prior_beta_params + prior_d_params + prior_lambda_params + prior_var_params)/G
 
@@ -207,9 +217,9 @@ def sampler(theta_init, ind, proposal_width, n_samples):
 
     params_init = theta_init
     params_current = params_init
-    posterior_samples = np.zeros((n_samples, n_params))
-    log_pi = np.zeros(n_samples)
-    Acceptance = np.zeros((n_samples, 1))
+    posterior_samples = onp.zeros((n_samples, n_params))
+    log_pi = onp.zeros(n_samples)
+    Acceptance = onp.zeros((n_samples, 1))
     
 
 
@@ -227,10 +237,10 @@ def sampler(theta_init, ind, proposal_width, n_samples):
         log_p_proposal = whittle_log_likelihood(params_proposal, y_hat, x_hat, q, p, TFI_term, ind=ind, return_sum=True) + log_prior(params_proposal)
         
         # Accept ratio
-        alpha = np.min([1, np.exp(log_p_proposal - log_p_current)])
-        accept = np.random.rand() < alpha
+        alpha = min(1.0, float(np.exp(log_p_proposal - log_p_current)))
+        accept = onp.random.rand() < alpha
         
-        if accept.any():
+        if accept:
             # Update position
             params_current = params_proposal
             log_p_current = log_p_proposal            
@@ -255,7 +265,7 @@ I = [item + np.arange(0, int(np.floor((T-1)/2)), G) for item in range(G)]
 
 n_samples = 6000
 Burn_in = int(1000)
-params = 0.1*np.ones(n_params)
+params = 0.1*onp.ones(n_params)
 
 
 def obj(prm): return -log_p(prm)
@@ -275,7 +285,7 @@ bnds = Bounds(lb, ub, keep_feasible=True)
 #Sampling
 draws = []
 log_pi = []
-Acceptance = np.zeros((n_samples*G, 1))
+Acceptance = onp.zeros((n_samples*G, 1))
 w = []
 thetaStar = []
 cov = []
@@ -297,8 +307,8 @@ for i in bar:
     
     paramsStar = res.x 
     #assert(res.success)
-    sigma = np.linalg.inv(-H_logp(paramsStar))
-    proposal_width = (2.38/np.sqrt(n_params))*sigma
+    sigma = onp.linalg.inv(onp.asarray(-H_logp(paramsStar), dtype=float))
+    proposal_width = (2.38/onp.sqrt(n_params))*sigma
     draw, log_pi_g, Acceptance = sampler(paramsStar, I[i], proposal_width, n_samples)
     
     draws.append(draw)
@@ -308,7 +318,7 @@ for i in bar:
     
     # 2.9.4 calculate sample variance(coveriance) of each shard, inverse them as the weights.
     #w.append(np.linalg.inv(sigma))
-    w.append(np.linalg.inv(np.cov(draw, rowvar=False)))
+    w.append(onp.linalg.inv(onp.cov(draw, rowvar=False)))
     
     AcceptanceRate = np.mean(Acceptance)
     print('\nAcceptanceRate:', AcceptanceRate)
@@ -316,11 +326,11 @@ for i in bar:
 
 
 posterior_samples = []
-posterior_samples = np.dot(np.linalg.inv(sum(w)), sum(np.dot(w[ind], draws[ind].T) for ind in range(G))).T
+posterior_samples = onp.dot(onp.linalg.inv(sum(w)), sum(onp.dot(w[ind], draws[ind].T) for ind in range(G))).T
 
 
 # 3.2 transform partial autocorrelated params to ARMA params
-phi = np.array(posterior_samples[:,:2], copy = True)
+phi = onp.array(posterior_samples[:,:2], copy = True)
 for i in range(n_samples-Burn_in):
     phi[i] = reparam(phi[i])
 
@@ -365,10 +375,6 @@ sns.kdeplot(phi2_G16)
 
 sns.kdeplot(sigma2_G1)
 sns.kdeplot(sigma2_G16)
-
-
-
-
 
 
 

@@ -6,8 +6,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+import os
+
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
+from jax import config as jax_config
+
+jax_config.update("jax_enable_x64", True)
+
+from jax import grad, hessian
+import jax.numpy as jnp
 import numpy as np
-from autograd import grad, hessian
 from scipy.optimize import Bounds, basinhopping, minimize
 
 from dts.aggregation import consensus, simple_average
@@ -86,7 +95,7 @@ def whittle_log_posterior(params, model: ModelSpec, periodogram, omega, n_groups
         model.tfi_term,
         n_groups=n_groups,
         check_bounds=False,
-    ) + np.sum(whittle_log_likelihood(params, model.q, model.p, periodogram, model.tfi_term, omega))
+    ) + jnp.sum(whittle_log_likelihood(params, model.q, model.p, periodogram, model.tfi_term, omega))
 
 
 def fit_whittle_shard(
@@ -141,7 +150,7 @@ def fit_whittle_shard(
             )
         theta_map = np.asarray(result.x, dtype=float)
         try:
-            target_cov = np.linalg.inv(make_positive_definite(hess_objective(theta_map)))
+            target_cov = np.linalg.inv(make_positive_definite(np.asarray(hess_objective(theta_map))))
         except np.linalg.LinAlgError:
             target_cov = np.eye(model.n_params) * 0.05
         scale = settings.proposal_scale or (2.38 / np.sqrt(model.n_params))

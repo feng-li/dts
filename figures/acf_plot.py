@@ -9,8 +9,17 @@ ACF
 """
 
 import statsmodels.api as sm
-import autograd.numpy as np
-from autograd import grad, hessian, jacobian
+import os
+
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
+from jax import config as jax_config
+
+jax_config.update("jax_enable_x64", True)
+
+import numpy as np
+import numpy as onp
+from jax import grad, hessian, jacobian
 from numdifftools import Hessian as Hess_finite_diff
 from numpy.fft import fft
 import matplotlib.pyplot as plt
@@ -18,19 +27,19 @@ import seaborn as sns
 import scipy.stats as sps
 from scipy.stats import multivariate_normal
 from scipy.optimize import minimize, Bounds, basinhopping
-import autograd.scipy.stats as sps_autograd
+import jax.scipy.stats as sps_jax
 import progressbar
 import pandas as pd
 import pickle
 import sys, os, platform
 import warnings
-from autograd.numpy.linalg import inv, slogdet
+from jax.numpy.linalg import inv, slogdet
 from statsmodels.tsa.stattools import acf, adfuller
 
 
 gtol = 1e-4 
 max_iter_optim = 500 
-np.random.seed(10)
+onp.random.seed(10)
 
 #################################################
 # 1. Divide data y into S shards y_1...y_s.
@@ -46,8 +55,8 @@ else:
     raise ValueError()      
 
 
-data2 = np.load(proj_path + 'Datasets/Vancouver_AR2_TFI_MA1.npy') 
-data1 = np.loadtxt(proj_path + 'Datasets/SimARTFIMA11_short.txt')
+data2 = onp.load(proj_path + 'Datasets/Vancouver_AR2_TFI_MA1.npy')
+data1 = onp.loadtxt(proj_path + 'Datasets/SimARTFIMA11_short.txt')
 
 # Compute ACFs
 acf_data1 = acf(data1, nlags=100)

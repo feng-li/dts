@@ -6,10 +6,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-import autograd.numpy as np
-import autograd.scipy.stats as sps_autograd
+import os
+
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
+from jax import config as jax_config
+
+jax_config.update("jax_enable_x64", True)
+
+from jax import grad, hessian
+import jax.numpy as np
+import jax.scipy.stats as sps_jax
 import numpy as onp
-from autograd import grad, hessian
 from scipy.optimize import Bounds, basinhopping, minimize
 
 from dts.aggregation import consensus, simple_average
@@ -171,21 +179,22 @@ def regression_log_prior(
     lambda_sd: float = 0.4,
 ):
     process = params[spec.process_slice]
-    if (np.abs(process) < 1).all():
-        prior_process = -len(process) * np.log(2.0)
-    else:
-        return -np.inf
+    prior_process = np.where(
+        np.all(np.abs(process) < 1.0),
+        -len(process) * np.log(2.0),
+        -np.inf,
+    )
 
     beta = params[spec.beta_slice]
-    prior_beta = np.sum(sps_autograd.norm.logpdf(beta, loc=0.0, scale=beta_sd))
+    prior_beta = np.sum(sps_jax.norm.logpdf(beta, loc=0.0, scale=beta_sd))
     if spec.tfi_term:
         prior_tail = (
-            sps_autograd.norm.logpdf(params[-1], loc=0.0, scale=tail_sd)
-            + sps_autograd.norm.logpdf(params[-3], loc=lambda_mu, scale=lambda_sd)
-            + sps_autograd.norm.logpdf(params[-2], loc=0.0, scale=tail_sd)
+            sps_jax.norm.logpdf(params[-1], loc=0.0, scale=tail_sd)
+            + sps_jax.norm.logpdf(params[-3], loc=lambda_mu, scale=lambda_sd)
+            + sps_jax.norm.logpdf(params[-2], loc=0.0, scale=tail_sd)
         )
     else:
-        prior_tail = sps_autograd.norm.logpdf(params[-1], loc=0.0, scale=tail_sd)
+        prior_tail = sps_jax.norm.logpdf(params[-1], loc=0.0, scale=tail_sd)
     return (prior_process + prior_beta + prior_tail) / n_groups
 
 
@@ -304,7 +313,7 @@ def fit_regression_whittle_shard(
             result = minimize(objective, x0=theta0, **minimizer_kwargs)
         theta_map = onp.asarray(result.x, dtype=float)
         try:
-            cov = onp.linalg.inv(make_positive_definite(hess_objective(theta_map)))
+            cov = onp.linalg.inv(make_positive_definite(onp.asarray(hess_objective(theta_map))))
         except onp.linalg.LinAlgError:
             cov = onp.eye(spec.n_params) * 0.05
         scale = settings.proposal_scale or (2.38 / onp.sqrt(spec.n_params))

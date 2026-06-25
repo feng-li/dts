@@ -8,8 +8,17 @@ Created on Mon Apr 28 16:09:03 2025
 
 
 
-import autograd.numpy as np
-from autograd import grad, hessian, jacobian
+import os
+
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
+from jax import config as jax_config
+
+jax_config.update("jax_enable_x64", True)
+
+import numpy as np
+import numpy as onp
+from jax import grad, hessian, jacobian
 from numpy.fft import fft
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -17,7 +26,7 @@ import scipy.stats as sps
 from scipy.stats import multivariate_normal
 from scipy.optimize import minimize, Bounds
 from scipy.special import logsumexp
-import autograd.scipy.stats as sps_autograd
+import jax.scipy.stats as sps_jax
 import progressbar
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -43,8 +52,8 @@ path = 'results/draws/spark/'
 dataset = 'Sim_AR1_TFI_MA1/'#'Vanc_ARMA12/'
 #data = np.loadtxt(proj_path + 'Datasets/SimARTFIMA11_short.txt')
 #data = np.load(proj_path + 'Datasets/Vancouver_AR2_TFI_MA1.npy') 
-draws = np.load(proj_path + path + dataset + 'G8.npy')[:,::10]
-logpi = np.load(proj_path + path + dataset + 'log_pi.npy')[:,::10]
+draws = onp.load(proj_path + path + dataset + 'G8.npy')[:,::10]
+logpi = onp.load(proj_path + path + dataset + 'log_pi.npy')[:,::10]
 #draws_G1 = np.load(proj_path + path + dataset + 'G1.npy')
 
 
@@ -119,7 +128,7 @@ n_params = 5#draws_G1.shape[1]
 N = 10000
 M = 1000
 
-draws_for_consensus = np.load(proj_path + path + dataset + 'G8.npy')
+draws_for_consensus = onp.load(proj_path + path + dataset + 'G8.npy')
 mus   = np.array([draws_for_consensus[g].mean(axis=0)           for g in range(G)])        # (G, n_params)
 covs  = np.array([np.cov(draws_for_consensus[g], rowvar=False)  for g in range(G)])        # (G, n_params, n_params)
 precs = np.linalg.inv(covs)                                                    # (G, n_params, n_params)
@@ -214,7 +223,7 @@ Sigma_pd = Sigma + np.eye(N)*jitter
 print(f"[STEP 2] done in {time.time() - t2:.2f} s", flush=True)
 
 
-L = np.random.multivariate_normal(Mu, Sigma, size=M).T
+L = onp.random.multivariate_normal(Mu, Sigma, size=M).T
 
 
 # --- compute log-unnormalised weights ---
@@ -240,7 +249,7 @@ post_mean = (theta_proposal * w[:,None]).sum(axis=0)
 post_cov  = np.cov(theta_proposal.T, aweights=w)
 
 # optional: draw an unweighted resample
-idx = np.random.choice(N, size=N, p=w)
+idx = onp.random.choice(N, size=N, p=w)
 theta_resampled = theta_proposal[idx]
         
 # Convert to a DataFrame
@@ -256,8 +265,6 @@ sns.kdeplot(data=df,
             bw_adjust=1)
 
 #sns.kdeplot(draws_G1[:,0])
-
-
 
 
 

@@ -7,15 +7,23 @@ Created on Mon May  5 15:02:48 2025
 """
 
 import statsmodels.api as sm
-import autograd.numpy as np
-from autograd import grad, hessian, jacobian
+import os
+
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
+from jax import config as jax_config
+
+jax_config.update("jax_enable_x64", True)
+
+import numpy as np
+from jax import grad, hessian, jacobian
 from numpy.fft import fft
 import matplotlib.pyplot as plt
 import seaborn as sns
 import scipy.stats as sps
 from scipy.stats import multivariate_normal
 from scipy.optimize import minimize, Bounds
-import autograd.scipy.stats as sps_autograd
+import jax.scipy.stats as sps_jax
 import progressbar
 import pandas as pd
 import pickle

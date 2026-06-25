@@ -12,9 +12,18 @@ import os
 import pickle
 import warnings
 import sys
-import autograd.numpy as np
-import autograd.scipy.stats as sps_autograd
-from autograd import grad, hessian
+import os
+
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
+from jax import config as jax_config
+
+jax_config.update("jax_enable_x64", True)
+
+import jax.numpy as np
+import numpy as onp
+import jax.scipy.stats as sps_jax
+from jax import grad, hessian
 
 import scipy.stats as sps
 from numpy.fft import fft
@@ -129,19 +138,20 @@ def whittle_log_likelihood(params, I_pg, omega_shard, q, p, TFI_term):
 def log_prior(theta, G, Last_ARMA, TFI_term):
     """Your prior, divided by G."""
     # uniform prior on process params in [-1,1]
-    if not any(abs(theta[:-Last_ARMA]) > 1):
-        prior_process_params = -len(theta[:-Last_ARMA]) * np.log(2)
-    else:
-        prior_process_params = -np.inf
+    prior_process_params = np.where(
+        np.all(np.abs(theta[:-Last_ARMA]) <= 1.0),
+        -len(theta[:-Last_ARMA]) * np.log(2),
+        -np.inf,
+    )
 
     if TFI_term:
-        prior_ginv_lambda_param = sps_autograd.norm.logpdf(theta[-3], loc=prior_mean_ginv_lambda_param, scale=prior_std_ginv_lambda_param)
-        prior_ginv_d_param = sps_autograd.norm.logpdf(theta[-1], loc=prior_mean_ginv_d_param, scale=prior_std_ginv_d_param)
-        prior_ginv_sigma2_param = sps_autograd.norm.logpdf(theta[-2], loc=prior_mean_ginv_sigma2_param, scale=prior_std_ginv_sigma2_param)
+        prior_ginv_lambda_param = sps_jax.norm.logpdf(theta[-3], loc=prior_mean_ginv_lambda_param, scale=prior_std_ginv_lambda_param)
+        prior_ginv_d_param = sps_jax.norm.logpdf(theta[-1], loc=prior_mean_ginv_d_param, scale=prior_std_ginv_d_param)
+        prior_ginv_sigma2_param = sps_jax.norm.logpdf(theta[-2], loc=prior_mean_ginv_sigma2_param, scale=prior_std_ginv_sigma2_param)
     else:
         prior_ginv_d_param = 0.0
         prior_ginv_lambda_param = 0.0
-        prior_ginv_sigma2_param = sps_autograd.norm.logpdf(theta[-1], loc=prior_mean_ginv_sigma2_param, scale=prior_std_ginv_sigma2_param)
+        prior_ginv_sigma2_param = sps_jax.norm.logpdf(theta[-1], loc=prior_mean_ginv_sigma2_param, scale=prior_std_ginv_sigma2_param)
 
     return (prior_process_params + prior_ginv_d_param + prior_ginv_sigma2_param + prior_ginv_lambda_param) / G
 
@@ -158,22 +168,22 @@ def sampler(paramsStar, proposal_width, log_p_fn, n_samples, burn_in, Last_ARMA)
     Returns draws after burn-in (shape: (n_samples-burn_in, n_params)).
     """
     n_params = len(paramsStar)
-    cur = np.array(paramsStar, copy=True)
+    cur = onp.array(paramsStar, copy=True)
     lcur = log_p_fn(cur)
 
-    out = np.zeros((n_samples, n_params))
+    out = onp.zeros((n_samples, n_params))
     acc = 0
 
     for i in range(n_samples):
         prop = sps.multivariate_normal.rvs(mean=cur, cov=proposal_width)
 
         # enforce PACF bounds for AR/MA parameters only
-        if (np.abs(prop[:-Last_ARMA]) < 1).all():
+        if onp.all(onp.abs(prop[:-Last_ARMA]) < 1):
             lprop = log_p_fn(prop)
         else:
             lprop = -np.inf
 
-        if np.log(np.random.rand()) < (lprop - lcur):
+        if onp.log(onp.random.rand()) < float(lprop - lcur):
             cur = prop
             lcur = lprop
             acc += 1
@@ -218,7 +228,7 @@ def run_one_replicate(data, G):
     weights = []
 
     # init param vector (PACF + [loglambda, logsigma2, d])
-    params0 = 0.1 * np.ones(n_params)
+    params0 = 0.1 * onp.ones(n_params)
 
     for g in range(G):
         data_shard = data[S[g]]
@@ -245,13 +255,13 @@ def run_one_replicate(data, G):
         )
 
         paramsStar = res.x
-        sigma = np.linalg.inv(-H_logp(paramsStar))
-        proposal_width = (2.38 / np.sqrt(n_params)) * sigma
+        sigma = onp.linalg.inv(onp.asarray(-H_logp(paramsStar), dtype=float))
+        proposal_width = (2.38 / onp.sqrt(n_params)) * sigma
 
         draw, acc_rate = sampler(paramsStar, proposal_width, log_p_fn, N_SAMPLES, BURN_IN, Last_ARMA)
 
         draws.append(draw)
-        weights.append(np.linalg.inv(np.cov(draw, rowvar=False)))
+        weights.append(onp.linalg.inv(onp.cov(draw, rowvar=False)))
 
         # carry last MAP as next init baseline (optional but helps)
         params0 = paramsStar
@@ -259,11 +269,11 @@ def run_one_replicate(data, G):
         print(f"  shard {g+1}/{G} acc={acc_rate:.3f}")
 
     # merge (your exact formula)
-    Wsum_inv = np.linalg.inv(sum(weights))
-    merged = np.dot(Wsum_inv, sum(np.dot(weights[g], draws[g].T) for g in range(G))).T
+    Wsum_inv = onp.linalg.inv(sum(weights))
+    merged = onp.dot(Wsum_inv, sum(onp.dot(weights[g], draws[g].T) for g in range(G))).T
 
     # back-transform phi (q=1)
-    phi = np.array(merged[:, :q], copy=True)
+    phi = onp.array(merged[:, :q], copy=True)
     for i in range(phi.shape[0]):
         phi[i] = reparam(phi[i])
 
@@ -278,7 +288,7 @@ def main():
         print("=" * 50)
 
         data_path = os.path.join(DATA_DIR, f"{CASE}_{rep_id:03d}_y.csv")
-        data = np.loadtxt(data_path, delimiter=",", skiprows=1)
+        data = onp.loadtxt(data_path, delimiter=",", skiprows=1)
 
         phi_draws = run_one_replicate(data, G)
         phi_list.append(phi_draws)
@@ -306,7 +316,7 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
+
     
 
 sys.exit()
@@ -445,5 +455,4 @@ print("===========================================\n")
 
 
 
-    
-    
+

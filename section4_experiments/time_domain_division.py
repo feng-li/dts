@@ -15,8 +15,17 @@ Naive Time Domain Divide-and-Conquer
 
 
 import statsmodels.api as sm
-import autograd.numpy as np
-from autograd import grad, hessian, jacobian
+import os
+
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
+from jax import config as jax_config
+
+jax_config.update("jax_enable_x64", True)
+
+import jax.numpy as np
+import numpy as onp
+from jax import grad, hessian, jacobian
 from numdifftools import Hessian as Hess_finite_diff
 from numpy.fft import fft
 import matplotlib.pyplot as plt
@@ -24,7 +33,7 @@ import seaborn as sns
 import scipy.stats as sps
 from scipy.stats import multivariate_normal
 from scipy.optimize import minimize, Bounds, basinhopping
-import autograd.scipy.stats as sps_autograd
+import jax.scipy.stats as sps_jax
 import progressbar
 import pandas as pd
 import pickle
@@ -65,7 +74,7 @@ Line Table of Contents
 '''
 gtol = 1e-4 
 max_iter_optim = 500 
-np.random.seed(10)
+onp.random.seed(10)
 
 #################################################
 # 1. Divide data y into S shards y_1...y_s.
@@ -82,7 +91,7 @@ else:
 
 
 #data = np.load(proj_path + 'Datasets/Vancouver_AR2_TFI_MA1.npy') 
-data = np.load(proj_path + 'Datasets/Bromma_AR2_TFI_MA2.npy') 
+data = onp.load(proj_path + 'Datasets/Bromma_AR2_TFI_MA2.npy')
 #data = np.loadtxt(proj_path + 'Datasets/SimARTFIMA11_short.txt')
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -113,7 +122,7 @@ def exact_log_likelihood_arma(data, params, q, p):
 # 2.3 exact likelihood function
 def log_likelihood_arma(data, params, q, p):
     """
-    Autograd‐compatible ARMA(q,p) innovations log‐likelihood.
+    JAX-compatible ARMA(q,p) innovations log‐likelihood.
 
     data   : 1D array of observations, shape (T,)
     params : 1D array of length q + p + 1
@@ -174,13 +183,14 @@ prior_std_ginv_sigma2_param = 1
 def log_prior(theta):
 
          
-    if not any(abs(theta[:-Last_ARMA]) > 1):
-        prior_process_params = -len(theta[:-Last_ARMA]) * np.log(2)
-    else:      
-        prior_process_params = -np.inf
+    prior_process_params = np.where(
+        np.all(np.abs(theta[:-Last_ARMA]) <= 1.0),
+        -len(theta[:-Last_ARMA]) * np.log(2),
+        -np.inf,
+    )
                 
 
-    prior_ginv_sigma2_param = sps_autograd.norm.logpdf(theta[-1], loc = prior_mean_ginv_sigma2_param, scale = prior_std_ginv_sigma2_param)
+    prior_ginv_sigma2_param = sps_jax.norm.logpdf(theta[-1], loc = prior_mean_ginv_sigma2_param, scale = prior_std_ginv_sigma2_param)
         
     return (prior_process_params + prior_ginv_sigma2_param)/G
 
@@ -226,9 +236,9 @@ def sampler(q, p, data, n_samples):
 
     params_init = paramsStar
     params_current = params_init
-    posterior_samples = np.zeros((n_samples, n_params))
-    log_p = np.zeros(n_samples)
-    Acceptance = np.zeros((n_samples, 1))
+    posterior_samples = onp.zeros((n_samples, n_params))
+    log_p = onp.zeros(n_samples)
+    Acceptance = onp.zeros((n_samples, 1))
     
     # Current log likelihood
     log_likelihood_current = exact_log_likelihood_arma(data, params_current, q, p)
@@ -244,7 +254,7 @@ def sampler(q, p, data, n_samples):
         
         # New position:
         params_proposal = sps.multivariate_normal.rvs(mean = params_current, cov = proposal_width)
-        if (np.abs(params_proposal[:-Last_ARMA]) < 1).all():
+        if onp.all(onp.abs(params_proposal[:-Last_ARMA]) < 1):
             
         
             log_likelihood_proposal = exact_log_likelihood_arma(data, params_proposal, q, p)
@@ -259,10 +269,10 @@ def sampler(q, p, data, n_samples):
         log_p_proposal = np.sum(log_likelihood_proposal) + np.sum(log_prior_proposal)
         
         # Accept ratio
-        alpha = np.min([1, np.exp(log_p_proposal - log_p_current)])
-        accept = np.random.rand() < alpha
+        alpha = min(1.0, float(np.exp(log_p_proposal - log_p_current)))
+        accept = onp.random.rand() < alpha
         
-        if accept.any():
+        if accept:
             # Update position
             params_current = params_proposal
             log_p_current = log_p_proposal            
@@ -286,12 +296,12 @@ Burn_in = int(5000)
 #Sampling
 draws = []
 log_pi = []
-Acceptance = np.zeros((n_samples*G, 1))
+Acceptance = onp.zeros((n_samples*G, 1))
 w = []
 thetaStar = []
 cov = []
 
-params = 0.1*np.ones(n_params)
+params = 0.1*onp.ones(n_params)
 params = params + sps.norm.rvs(0, 0.01, size = len(params))
 
 
@@ -323,11 +333,11 @@ for ind in bar:
     #res = basinhopping(obj, x0 = params, niter=100, stepsize=1., callback=None, minimizer_kwargs={"method": "trust-constr", "jac":jcb, "hess":hs}, seed=15)
     paramsStar = res.x 
     #assert(res.success)
-    sigma = np.linalg.inv(-H_logp(paramsStar))
+    sigma = onp.linalg.inv(onp.asarray(-H_logp(paramsStar), dtype=float))
     
 
     print('\nMAP%s' %(ind+1), np.round(paramsStar, 2))
-    proposal_width = (2.38/np.sqrt(n_params))*sigma
+    proposal_width = (2.38/onp.sqrt(n_params))*sigma
 
 
 
@@ -355,7 +365,7 @@ for ind in bar:
     
     # 2.9.4 calculate sample variance(coveriance) of each shard, inverse them as the weights.
     #w.append(np.linalg.inv(sigma))
-    w.append(np.linalg.inv(np.cov(draw, rowvar=False)))
+    w.append(onp.linalg.inv(onp.cov(draw, rowvar=False)))
     
     AcceptanceRate = np.mean(Acceptance)
     print('\nAcceptanceRate:', AcceptanceRate)
@@ -367,20 +377,20 @@ for ind in bar:
 
 # 3.1 combine the draws: sum all weights -> inverse -> multiply each shard's weight and draws -> sum
 posterior_samples = []
-posterior_samples = np.dot(np.linalg.inv(sum(w)), sum(np.dot(w[ind], draws[ind].T) for ind in range(G))).T
+posterior_samples = onp.dot(onp.linalg.inv(sum(w)), sum(onp.dot(w[ind], draws[ind].T) for ind in range(G))).T
     
 
 posterior_samples_2 = []
-posterior_samples_2 = np.dot(np.linalg.inv(sum(w)), sum(np.dot(w[ind], draws[ind].T) for ind in range(G))).T
+posterior_samples_2 = onp.dot(onp.linalg.inv(sum(w)), sum(onp.dot(w[ind], draws[ind].T) for ind in range(G))).T
 
 
 # 3.2 transform partial autocorrelated params to ARMA params
-phi = np.array(posterior_samples_2[:,:q], copy = True)
+phi = onp.array(posterior_samples_2[:,:q], copy = True)
 for i in range(n_samples-Burn_in):
     phi[i] = reparam(phi[i])
 
 
-theta = np.array(posterior_samples_2[:,q:q+p], copy = True)
+theta = onp.array(posterior_samples_2[:,q:q+p], copy = True)
 for i in range(n_samples-Burn_in):
     theta[i] = reparam(theta[i], MA = True)
     
@@ -412,10 +422,6 @@ for ind in range(G):
 
 for ind in range(G):
     sns.kdeplot(draws[ind][:,3])
-
-
-
-
 
 
 

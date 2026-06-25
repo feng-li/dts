@@ -1,7 +1,16 @@
 import statsmodels.api as sm
-import autograd.numpy as np
+import os
+
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
+from jax import config as jax_config
+
+jax_config.update("jax_enable_x64", True)
+
+import jax.numpy as np
+import numpy as onp
 import scipy.stats as sps
-import autograd.scipy.stats as sps_autograd
+import jax.scipy.stats as sps_jax
 # from numdifftools import Hessian as Hess_finite_diff
 # from scipy.stats import multivariate_normal
 # import pandas as pd
@@ -15,13 +24,13 @@ def f_ARTFIMA(omega, phi, theta, var, d, lambda_):
     Spectral density function
     '''
     TFI = np.abs(1 - np.exp(-(lambda_ + 1j*omega)))**(-2*d)
-    if phi.any():
+    if len(phi):
         log_arg_phi = np.outer(-1j*omega,np.arange(1, len(phi)+1))
         vv1 = 1/(1 - np.sum(phi * np.exp(log_arg_phi),1))
     else:
         vv1 = 1
 
-    if theta.any():
+    if len(theta):
         log_arg_theta = np.outer(-1j*omega,np.arange(1, len(theta)+1))
         vv2 = (1 + np.sum(theta * np.exp(log_arg_theta),1))
     else:
@@ -78,19 +87,20 @@ def log_prior(params, mu, sd, Last_ARMA, TFI_term):
 
     '''
 
-    if (np.abs(params[:-Last_ARMA]) < 1).all():
-        prior_process_params = -len(params[:-Last_ARMA])*np.log(2)
-    else:
-        prior_process_params = -np.inf
+    prior_process_params = np.where(
+        np.all(np.abs(params[:-Last_ARMA]) < 1.0),
+        -len(params[:-Last_ARMA])*np.log(2),
+        -np.inf,
+    )
 
     if TFI_term:
-        prior_d_params = sps_autograd.norm.logpdf(params[-1], loc = mu, scale = sd)
-        prior_lambda_params = sps_autograd.norm.logpdf(params[-3], loc = mu, scale = sd)
-        prior_var_params = sps_autograd.norm.logpdf(params[-2], loc = mu, scale = sd)
+        prior_d_params = sps_jax.norm.logpdf(params[-1], loc = mu, scale = sd)
+        prior_lambda_params = sps_jax.norm.logpdf(params[-3], loc = mu, scale = sd)
+        prior_var_params = sps_jax.norm.logpdf(params[-2], loc = mu, scale = sd)
     else:
         prior_d_params = 0
         prior_lambda_params = 0
-        prior_var_params = sps_autograd.norm.logpdf(params[-1], loc = mu, scale = sd)
+        prior_var_params = sps_jax.norm.logpdf(params[-1], loc = mu, scale = sd)
 
     return (prior_process_params + prior_d_params + prior_lambda_params + prior_var_params)
 
@@ -137,9 +147,9 @@ def sampler(q, p, data, I_pg, TFI_term, omega_shard, n_samples, paramsStar, prop
 
     params_init = paramsStar
     params_current = params_init
-    posterior_samples = np.zeros((n_samples, n_params))
-    log_p = np.zeros(n_samples)
-    Acceptance = np.zeros((n_samples, 1))
+    posterior_samples = onp.zeros((n_samples, n_params))
+    log_p = onp.zeros(n_samples)
+    Acceptance = onp.zeros((n_samples, 1))
 
     # Current log likelihood
     if exact:
@@ -158,7 +168,7 @@ def sampler(q, p, data, I_pg, TFI_term, omega_shard, n_samples, paramsStar, prop
         # No inner progressbar
         # New position:
         params_proposal = sps.multivariate_normal.rvs(mean = params_current, cov = proposal_width)
-        if (np.abs(params_proposal[:-Last_ARMA]) < 1).all():
+        if onp.all(onp.abs(params_proposal[:-Last_ARMA]) < 1):
 
         # Proposal log likelihood
             if exact:
@@ -175,10 +185,10 @@ def sampler(q, p, data, I_pg, TFI_term, omega_shard, n_samples, paramsStar, prop
         log_p_proposal = np.sum(log_likelihood_proposal) + np.sum(log_prior_proposal)
 
         # Accept ratio
-        alpha = np.min([1, np.exp(log_p_proposal - log_p_current)])
-        accept = np.random.rand() < alpha
+        alpha = min(1.0, float(np.exp(log_p_proposal - log_p_current)))
+        accept = onp.random.rand() < alpha
 
-        if accept.any():
+        if accept:
             # Update position
             params_current = params_proposal
             log_p_current = log_p_proposal

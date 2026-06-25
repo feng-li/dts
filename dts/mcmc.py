@@ -5,8 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-import autograd.numpy as np
-import autograd.scipy.stats as sps_autograd
+import os
+
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
+from jax import config as jax_config
+
+jax_config.update("jax_enable_x64", True)
+
+import jax.numpy as np
+import jax.scipy.stats as sps_jax
 import numpy as onp
 import statsmodels.api as sm
 
@@ -46,10 +54,6 @@ def reparam(params, MA: bool = False):
 
 def f_ARTFIMA(omega, phi, theta, var, d, lambda_):
     """Spectral density for ARTFIMA and its ARMA special case."""
-    omega = np.asarray(omega)
-    phi = np.asarray(phi)
-    theta = np.asarray(theta)
-
     tfi = np.abs(1.0 - np.exp(-(lambda_ + 1j * omega))) ** (-2.0 * d)
 
     if len(phi):
@@ -74,7 +78,6 @@ def f_ARTFIMA(omega, phi, theta, var, d, lambda_):
 
 def whittle_log_likelihood(params, q, p, I_pg, TFI_term, omega_shard):
     """Whittle log-likelihood contributions for positive Fourier frequencies."""
-    params = np.asarray(params)
     if TFI_term:
         d = params[-1]
         lambda_ = np.exp(params[-3])
@@ -125,12 +128,12 @@ def log_prior(
 
     if TFI_term:
         prior_tail = (
-            sps_autograd.norm.logpdf(params[-1], loc=mu, scale=sd)
-            + sps_autograd.norm.logpdf(params[-3], loc=mu, scale=sd)
-            + sps_autograd.norm.logpdf(params[-2], loc=mu, scale=sd)
+            sps_jax.norm.logpdf(params[-1], loc=mu, scale=sd)
+            + sps_jax.norm.logpdf(params[-3], loc=mu, scale=sd)
+            + sps_jax.norm.logpdf(params[-2], loc=mu, scale=sd)
         )
     else:
-        prior_tail = sps_autograd.norm.logpdf(params[-1], loc=mu, scale=sd)
+        prior_tail = sps_jax.norm.logpdf(params[-1], loc=mu, scale=sd)
 
     return (prior_process + prior_tail) / n_groups
 

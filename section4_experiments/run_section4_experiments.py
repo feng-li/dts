@@ -13,9 +13,18 @@ True parallel
 from typing import Any, Dict
 
 import pandas as pd
-import autograd.numpy as np
-from autograd import grad, hessian
-import autograd.scipy.stats as sps_autograd
+import os
+
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
+from jax import config as jax_config
+
+jax_config.update("jax_enable_x64", True)
+
+import jax.numpy as np
+import numpy as onp
+from jax import grad, hessian
+import jax.scipy.stats as sps_jax
 from scipy.stats import multivariate_normal
 from scipy.optimize import minimize, Bounds, basinhopping
 from numpy.fft import fft
@@ -167,18 +176,19 @@ def log_prior(params: np.ndarray, mu: float, sd: float,
     Fractionated prior combining stationarity and normal priors.
     """
     # Stationarity/invertibility constraint
-    if (np.abs(params[:-Last_ARMA]) < 1).all():
-        lp = - (params.size - Last_ARMA) * np.log(2)
-    else:
-        return -np.inf
+    lp = np.where(
+        np.all(np.abs(params[:-Last_ARMA]) < 1.0),
+        - (params.size - Last_ARMA) * np.log(2),
+        -np.inf,
+    )
 
     # Gaussian priors on scale/diff parameters
     if TFI_term:
-        lp += sps_autograd.norm.logpdf(params[-1], 0, 100)
-        lp += sps_autograd.norm.logpdf(params[-3], -2.3, 0.4)
-        lp += sps_autograd.norm.logpdf(params[-2], 0, 100)
+        lp += sps_jax.norm.logpdf(params[-1], 0, 100)
+        lp += sps_jax.norm.logpdf(params[-3], -2.3, 0.4)
+        lp += sps_jax.norm.logpdf(params[-2], 0, 100)
     else:
-        lp += sps_autograd.norm.logpdf(params[-1], 0, 100)
+        lp += sps_jax.norm.logpdf(params[-1], 0, 100)
 
     return lp / G
 
@@ -186,7 +196,7 @@ def log_prior(params: np.ndarray, mu: float, sd: float,
 def reparam(params: np.ndarray, MA: bool = False) -> np.ndarray:
     """
     Transform partial autocorrelation params to AR/MA coefficients.
-    Autograd-safe real-only version.
+    JAX-safe real-only version.
     """
 
     newp = np.array(params)
@@ -222,9 +232,9 @@ def sampler(q: int, p: int,
     n_params = theta_map.size
     Last_ARMA = 3 if TFI_term else 1
 
-    draws = np.zeros((n_samples, n_params))
-    logp_trace = np.zeros(n_samples)
-    accepts = np.zeros(n_samples, dtype=bool)
+    draws = onp.zeros((n_samples, n_params))
+    logp_trace = onp.zeros(n_samples)
+    accepts = onp.zeros(n_samples, dtype=bool)
 
     # Initial log posterior
     if exact:
@@ -239,7 +249,7 @@ def sampler(q: int, p: int,
 
         theta_prop = multivariate_normal.rvs(theta_map, proposal_cov)
         # check stationarity
-        if (np.abs(theta_prop[:-Last_ARMA]) < 1).all():
+        if onp.all(onp.abs(theta_prop[:-Last_ARMA]) < 1):
             if exact:
                 ll_prop = exact_log_likelihood_arma(data, theta_prop, q, p)
             else:
@@ -250,8 +260,8 @@ def sampler(q: int, p: int,
         lp_prop = log_prior(theta_prop, 0, 1, Last_ARMA, TFI_term, G)
         logp_prop = np.sum(ll_prop) + lp_prop
 
-        alpha = min(1, np.exp(logp_prop - logp_current))
-        if np.random.rand() < alpha:
+        alpha = min(1.0, float(np.exp(logp_prop - logp_current)))
+        if onp.random.rand() < alpha:
             theta_map = theta_prop
             logp_current = logp_prop
             accepts[i] = True
@@ -283,22 +293,22 @@ def mapper(
     burn = conf_mcmc['Burn_in']
 
     shard_id = int(pdf['shard_id'].iat[0])
-    np.random.seed(15)  
+    onp.random.seed(15)
 
     Last_ARMA = 3 if TFI else 1
     
     if not exact:
         I_pg = pdf["I_pg"].values.astype(float)
         omega = pdf["omega"].values.astype(float)
-        data = np.zeros(1)   # dummy, not used under Whittle
+        data = onp.zeros(1)   # dummy, not used under Whittle
     else:
         raise NotImplementedError("exact_L=True not supported in Spark+DFFT Whittle version.")
 
     # MAP and sampling
     # reuse fns defined above
     n_params = q_ + p_ + (3 if TFI else 1)
-    theta0 = 0.01*np.ones(n_params)
-    theta0 += np.random.randn(n_params)*0.1
+    theta0 = 0.01*onp.ones(n_params)
+    theta0 += onp.random.randn(n_params)*0.1
 
     # Define local log_p
     logp_fn = (lambda th: log_prior(th,0,1,Last_ARMA,TFI,G) +
@@ -334,10 +344,10 @@ def mapper(
         
     theta_map = res.x
 
-    cov_map = np.linalg.inv(-hessian(logp_fn)(theta_map))
+    cov_map = onp.linalg.inv(onp.asarray(-hessian(logp_fn)(theta_map), dtype=float))
     np.set_printoptions(precision=2, suppress=True, floatmode="fixed") 
     print(f"[MAP] shard {shard_id}: {np.asarray(theta_map)}", flush=True)
-    prop_cov = (2.38/np.sqrt(n_params))*cov_map
+    prop_cov = (2.38/onp.sqrt(n_params))*cov_map
     prop_cov = (prop_cov + prop_cov.T)/2 # Force positive definite
 
     draws, logp_trace, accepts = sampler(q_,p_,data,I_pg,TFI,omega,
@@ -356,12 +366,12 @@ def mapper(
 
     sid = int(shard_id)
 
-    np.save(
+    onp.save(
         os.path.join(out_dir, f"shard{sid:02d}_draws.npy"),
         draws
     )
 
-    np.save(
+    onp.save(
         os.path.join(out_dir, f"shard{sid:02d}_logp.npy"),
         logp_trace
     )
@@ -499,6 +509,3 @@ logpi_npy = np.array(logpi_list)
 
 log_pi = logpi_npy[:,-10000:]
 '''
-
-
-

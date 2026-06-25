@@ -1,7 +1,16 @@
-import autograd.numpy as np
+import os
+
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
+from jax import config as jax_config
+
+jax_config.update("jax_enable_x64", True)
+
+import jax.numpy as np
+import numpy as onp
 import pandas as pd
 import scipy.stats as sps
-from autograd import grad, hessian
+from jax import grad, hessian
 from scipy.optimize import minimize, Bounds
 from numpy.fft import fft
 
@@ -33,7 +42,7 @@ def mapper(pdf, conf_model, conf_mcmc):
         n_params = q + p + 1
         Last_ARMA = 1
 
-    params = 0.01*np.ones(n_params)
+    params = 0.01*onp.ones(n_params)
     params = params + sps.norm.rvs(0, 0.1, size=len(params))
 
     if exact_L:
@@ -91,10 +100,10 @@ def mapper(pdf, conf_model, conf_mcmc):
                    method='trust-constr', x0=params)
     paramsStar = res.x
     assert(res.success)
-    sigma = np.linalg.inv(-H_logp(paramsStar))
+    sigma = onp.linalg.inv(onp.asarray(-H_logp(paramsStar), dtype=float))
 
     # print('\nMAP%s' %(ind+1), paramsStar)
-    proposal_width = (2.38/np.sqrt(n_params))*sigma
+    proposal_width = (2.38/onp.sqrt(n_params))*sigma
 
 
     # 2.9.1 each worker gets its shard of data(periodgram)
@@ -114,7 +123,7 @@ def mapper(pdf, conf_model, conf_mcmc):
         params_prior_mu=0, params_prior_sd=1., exact=exact_L)
 
     # Make a final Pandas DataFrame
-    out_np = np.column_stack((draw, log_pi_g, Acceptance))
+    out_np = onp.column_stack((draw, log_pi_g, Acceptance))
     out_pd_colnames = ["group_id", "log_p", 'log_p', 'Acceptance']
     out_pd = pd.DataFrame(out_np, out_pd_colnames)
 

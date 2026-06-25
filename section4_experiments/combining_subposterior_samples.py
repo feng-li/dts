@@ -8,15 +8,24 @@ Created on Fri Nov  5 02:27:20 2021
 
 
 import statsmodels.api as sm
-import autograd.numpy as np
-from autograd import grad, hessian, jacobian
+import os
+
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
+from jax import config as jax_config
+
+jax_config.update("jax_enable_x64", True)
+
+import numpy as np
+import numpy as onp
+from jax import grad, hessian, jacobian
 from numpy.fft import fft
 import matplotlib.pyplot as plt
 import seaborn as sns
 import scipy.stats as sps
 from scipy.stats import multivariate_normal
 from scipy.optimize import minimize, Bounds
-import autograd.scipy.stats as sps_autograd
+import jax.scipy.stats as sps_jax
 import progressbar
 import pandas as pd
 import sys, os, platform
@@ -51,8 +60,8 @@ path = 'results/draws/spark/'
 dataset = 'Vanc_ARMA12/'#'Sim_AR1_TFI_MA1_long/'#'Bromma/'#
 
 
-draws = np.load(proj_path + path + dataset + 'G8.npy')
-draws_G1 = np.load(proj_path + path + dataset + 'G1.npy')
+draws = onp.load(proj_path + path + dataset + 'G8.npy')
+draws_G1 = onp.load(proj_path + path + dataset + 'G1.npy')
 
 
 q = 1
@@ -72,7 +81,7 @@ else:
 
 
 
-np.random.seed(10)
+onp.random.seed(10)
 
 def reparam(params, MA = False):
     """
@@ -161,7 +170,7 @@ def combination(method):
         return combined[:n_samples]
 
     elif method == "parametric":
-        posterior_samples = np.random.multivariate_normal(
+        posterior_samples = onp.random.multivariate_normal(
             mean=mu_M,
             cov=Sigma_M,
             size=n_samples
@@ -182,7 +191,7 @@ def combination(method):
         ]
 
         # 3) initialize index vector, storage
-        t_dot             = np.random.randint(0, T, size=G)
+        t_dot             = onp.random.randint(0, T, size=G)
         posterior_samples = np.zeros((n_samples, n_params))
         acceptance        = np.zeros((G, n_samples), dtype=int)
         bar               = progressbar.ProgressBar(max_value=n_samples)
@@ -192,7 +201,7 @@ def combination(method):
             for m in range(G):
                 # propose new index for subposterior m
                 c_dot = t_dot.copy()
-                c_dot[m] = np.random.randint(0, T)
+                c_dot[m] = onp.random.randint(0, T)
 
                 # compute the "global" mean under old & new indices
                 θ_old = np.mean([draws[j, t_dot[j]] for j in range(G)], axis=0)
@@ -208,7 +217,7 @@ def combination(method):
 
                 # acceptance probability
                 alpha = np.exp(log_r_new - log_r_old)
-                if np.random.rand() < alpha:
+                if onp.random.rand() < alpha:
                     t_dot[m]         = c_dot[m]
                     acceptance[m, i] = 1
 
@@ -230,7 +239,7 @@ def combination(method):
         h2I = (h**2) * np.eye(n_params)
 
         # 2) initialize index vector
-        t_dot = np.random.randint(0, T, size=G)
+        t_dot = onp.random.randint(0, T, size=G)
 
         # 3) storage
         posterior_samples = np.zeros((n_samples, n_params))
@@ -255,7 +264,7 @@ def combination(method):
             for m in range(G):
                 # propose a new index for machine m
                 c_dot = t_dot.copy()
-                c_dot[m] = np.random.randint(0, T)
+                c_dot[m] = onp.random.randint(0, T)
 
                 # old/new global means
                 θ_old = theta_bar(t_dot)
@@ -275,7 +284,7 @@ def combination(method):
                 alpha     = np.exp(log_W_new - log_W_old)
 
                 # accept/reject
-                if np.random.rand() < alpha:
+                if onp.random.rand() < alpha:
                     t_dot[m]        = c_dot[m]
                     acceptance[m,i] = 1
 
@@ -305,7 +314,7 @@ def combination(method):
         return np.array(combined_r)       
     
     elif method == "GP-IS":
-        gp_is_w = np.load(proj_path + 'results/draws/spark/' + dataset + 'gp_is_w.npy')
+        gp_is_w = onp.load(proj_path + 'results/draws/spark/' + dataset + 'gp_is_w.npy')
         weighted = sum(precs[g] @ draws[g].T for g in range(G))                 
         consensus_samples = (Sigma_M @ weighted).T  
         
@@ -319,7 +328,7 @@ def combination(method):
             size = gp_is_w.shape[0]
         )
 
-        idx = np.random.choice(
+        idx = onp.random.choice(
             len(gp_is_w),
             size=len(gp_is_w),
             replace=True,
