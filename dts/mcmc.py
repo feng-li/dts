@@ -5,13 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-import os
+from dts._jax import configure_jax
 
-os.environ.setdefault("JAX_PLATFORMS", "cpu")
-
-from jax import config as jax_config
-
-jax_config.update("jax_enable_x64", True)
+configure_jax()
 
 import jax.numpy as np
 import jax.scipy.stats as sps_jax

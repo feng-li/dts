@@ -2,62 +2,91 @@
 
 Frequency-domain divide-and-conquer MCMC for stationary time series.
 
-This repository is organized around the manuscript in
-`docs/Manuscript_2026_Zi.tex`. The reusable Python code lives in `dts/`, while
-paper replication entry points live in `scripts/`.
+This repository contains the reproducible Python implementation for
+`docs/Manuscript_2026_Zi.tex`. The active package is `dts/`; paper and
+deployment entry points are in `scripts/`. Older source scripts migrated from
+the student project are kept in `legacy/`, `figures/`, `section4_experiments/`,
+and `section5_applications/` for traceability.
 
-## Structure
+## What Is Implemented
 
-- `dts/mcmc.py`: ARMA/ARTFIMA spectral density, Whittle likelihood, priors, and Metropolis sampler.
-- `dts/partition.py`: periodogram construction and systematic/sequential frequency partitioning.
-- `dts/aggregation.py`: average and consensus Monte Carlo aggregation plus posterior summaries.
-- `dts/experiments.py`: local experiment runners used by the replication script.
-- `dts/dfft.py` and `dts/mapper.py`: Spark DFFT and grouped shard MCMC helpers.
-- `dts/regression.py`: AR(2) regression diagnostics used for the DC-BATS comparison.
-- `dts/artifacts.py`: helpers for stacking shard-level MCMC artifacts.
-- `scripts/replicate_main_results.py`: local replication for the main paper experiments.
-- `scripts/replicate_ar2_regression.py`: AR(2) regression CI and Wasserstein diagnostics.
-- `scripts/run_spark_mcmc.py`: Spark replication entry point for distributed frequency-domain MCMC.
-- `scripts/stack_shard_draws.py`: stack `shardXX_draws.npy` and `shardXX_logp.npy` outputs.
-- `data/`: bundled SimARTFIMA, Vancouver, Bromma, Maine, and AR(2) benchmark data.
+- Whittle likelihood inference for ARMA and ARTFIMA models.
+- Frequency-domain partitioning that preserves the global periodogram.
+- Local and Spark-based shard MCMC.
+- Consensus and simple-average posterior aggregation.
+- AR(2) regression diagnostics for the DC-BATS comparison.
+- JAX-based gradients and Hessians for MAP estimation.
 
-## Install
+The code defaults JAX to CPU and enables 64-bit arithmetic through
+`dts._jax.configure_jax()`. Regular NumPy is still used for random sampling,
+mutable arrays, file I/O, and SciPy/statsmodels interop.
 
-```sh
-pip install -e .
-```
+## Repository Layout
 
-Install Spark support only when needed:
+- `dts/`: reusable Python package.
+- `scripts/`: runnable replication, Spark, and artifact utilities.
+- `data/`: bundled manuscript inputs and benchmark data.
+- `docs/Manuscript_2026_Zi.tex`: current paper source.
+- `docs/REPLICATION.md`: detailed replication and development notes.
+- `artifacts/`: generated outputs. This directory is ignored by git.
+- `legacy/`: old migrated helpers retained only for reference.
 
-```sh
-pip install -e ".[spark]"
-```
+## Installation
 
-## Replicate Main Results
-
-Quick validation:
+Use the existing project environment when available:
 
 ```sh
-python scripts/replicate_main_results.py --preset quick --experiments combination
+/home/fli/.virtualenvs/py3.12-spark4/bin/python -m pip install -e .
 ```
 
-Manuscript-scale run:
+For Spark runs, install the optional dependency:
 
 ```sh
-python scripts/replicate_main_results.py --preset paper --experiments all
+/home/fli/.virtualenvs/py3.12-spark4/bin/python -m pip install -e ".[spark]"
 ```
 
-Outputs are written to `artifacts/replication/`, including posterior summaries,
-diagnostics, and marginal posterior figures. The paper preset uses the paper's
-15,000 MCMC iterations with 5,000 burn-in and is expected to be slow.
+The package dependencies are declared in `pyproject.toml`. `requirements.txt`
+is kept for environment recreation.
 
-AR(2) regression comparison:
+## Quick Validation
+
+Run the fast local checks before starting manuscript-scale jobs:
 
 ```sh
-python scripts/replicate_ar2_regression.py --preset paper
+/home/fli/.virtualenvs/py3.12-spark4/bin/python scripts/replicate_main_results.py \
+  --preset quick \
+  --experiments all \
+  --output-dir artifacts/quick_main
+
+/home/fli/.virtualenvs/py3.12-spark4/bin/python scripts/replicate_ar2_regression.py \
+  --preset quick \
+  --output-dir artifacts/quick_ar2
 ```
 
-## Spark Run
+These commands normally produce no terminal output on success. Inspect the
+CSV summaries and `manifest.json` files under the selected artifact folders.
+
+## Paper Replication
+
+Full manuscript-scale runs use 15,000 MCMC iterations with 5,000 burn-in and
+can take a long time:
+
+```sh
+/home/fli/.virtualenvs/py3.12-spark4/bin/python scripts/replicate_main_results.py \
+  --preset paper \
+  --experiments all
+
+/home/fli/.virtualenvs/py3.12-spark4/bin/python scripts/replicate_ar2_regression.py \
+  --preset paper
+```
+
+The main script writes posterior summaries, figures, and a run manifest to
+`artifacts/replication/`. The AR(2) script writes its diagnostic table to
+`artifacts/ar2_regression/`.
+
+## Spark Workflow
+
+Run the distributed frequency-domain MCMC entry point with `spark-submit`:
 
 ```sh
 spark-submit scripts/run_spark_mcmc.py \
@@ -65,33 +94,33 @@ spark-submit scripts/run_spark_mcmc.py \
   --column y \
   --groups 10 \
   --fft-partitions 16 \
-  --q 1 --p 1 --tfi-term
+  --q 1 \
+  --p 1 \
+  --tfi-term \
+  --output artifacts/spark_mcmc
 ```
 
-Bromma/Stockholm application:
+Check the Spark FFT implementation independently:
 
 ```sh
-spark-submit scripts/run_spark_mcmc.py \
-  --input data/Bromma_AR2_TFI_MA2.csv \
-  --column y \
-  --groups 10 \
-  --fft-partitions 16 \
-  --q 2 --p 2 --tfi-term \
-  --samples 15000 \
-  --burn-in 5000 \
-  --basinhopping \
-  --basinhopping-iter 100 \
-  --output artifacts/bromma_spark
+/home/fli/.virtualenvs/py3.12-spark4/bin/python scripts/check_dfft.py \
+  --n 160 \
+  --partitions 8
 ```
 
-Stack per-shard numpy artifacts:
+Use `scripts/stack_shard_draws.py` for legacy shard files named
+`shardXX_draws.npy` and `shardXX_logp.npy`.
+
+## Development Checks
+
+Before committing changes, run:
 
 ```sh
-python scripts/stack_shard_draws.py artifacts/Bromma_ARTFIMA22_Whittle_G10 --groups 10
+git diff --check
+/home/fli/.virtualenvs/py3.12-spark4/bin/python -m py_compile \
+  dts/*.py scripts/*.py figures/*.py section4_experiments/*.py \
+  section5_applications/*.py DFFT/*.py legacy/dts/*.py
 ```
 
-Check the Spark FFT implementation:
-
-```sh
-python scripts/check_dfft.py --n 160 --partitions 8
-```
+For changes touching inference code, also run the quick validation commands
+above. Commit local changes before pulling or rebasing from the remote.

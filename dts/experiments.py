@@ -6,13 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-import os
+from dts._jax import configure_jax
 
-os.environ.setdefault("JAX_PLATFORMS", "cpu")
-
-from jax import config as jax_config
-
-jax_config.update("jax_enable_x64", True)
+configure_jax()
 
 from jax import grad, hessian
 import jax.numpy as jnp

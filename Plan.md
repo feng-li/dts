@@ -30,6 +30,7 @@ Reorganize the current repository around `docs/Manuscript_2026_Zi.tex` so the ma
 - `dts/mapper.py`: Spark grouped-map MCMC wrapper.
 - `dts/regression.py`: AR(2) regression with ARMA/ARTFIMA errors for the DC-BATS comparison.
 - `dts/artifacts.py`: stack per-shard MCMC draw/log-p artifacts.
+- `dts/_jax.py`: central JAX runtime configuration for CPU and 64-bit autodiff.
 
 ## Replication Mapping
 
@@ -47,5 +48,8 @@ Reorganize the current repository around `docs/Manuscript_2026_Zi.tex` so the ma
 
 - `--preset quick` validates the full pipeline with short chains and truncated data.
 - `--preset paper` uses the manuscript-scale MCMC length and can take a long time.
+- Automatic differentiation now uses JAX. NumPy is still used for mutable arrays,
+  random sampling, saved artifacts, and SciPy/statsmodels interop.
+- Operational documentation is in `README.md` and `docs/REPLICATION.md`.
 - Copied newly accessible source data into `data/`: Bromma, Maine demand, Vancouver CSV, DC-BATS AR(2), and LM/SM DC-BATS benchmark arrays.
 - The full Bromma and paper-scale AR(2) runs are intentionally long-running; use quick presets for validation.
