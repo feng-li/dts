@@ -14,6 +14,7 @@ import numpy as np
 from scipy.optimize import Bounds, basinhopping, minimize
 
 from dts.mcmc import make_positive_definite
+from dts.progress import progress_bar
 
 
 class OptimizationSettings(Protocol):
@@ -24,6 +25,7 @@ class OptimizationSettings(Protocol):
     basinhopping: bool
     basinhopping_iter: int
     seed: int
+    progress: bool
 
 
 @dataclass(frozen=True)
@@ -65,6 +67,24 @@ def fit_map_and_proposal(
     def scipy_hess(theta):
         return np.asarray(hess_objective(theta), dtype=float)
 
+    progress_enabled = bool(getattr(settings, "progress", False))
+
+    def make_optimizer_callback(bar):
+        last_iter = 0
+
+        def callback(xk, state=None):
+            nonlocal last_iter
+            current_iter = getattr(state, "nit", None)
+            if current_iter is None:
+                current_iter = last_iter + 1
+            current_iter = min(int(current_iter), settings.max_iter_optim)
+            if current_iter > last_iter:
+                bar.update(current_iter - last_iter)
+                last_iter = current_iter
+            return False
+
+        return callback
+
     minimizer_kwargs = {
         "jac": scipy_grad,
         "hess": scipy_hess,
@@ -73,26 +93,54 @@ def fit_map_and_proposal(
         "options": {"gtol": settings.gtol, "maxiter": settings.max_iter_optim},
     }
     if settings.basinhopping:
-        result = basinhopping(
-            scipy_objective,
-            x0=theta0,
-            niter=settings.basinhopping_iter,
-            stepsize=1.0,
-            minimizer_kwargs=minimizer_kwargs,
-            seed=settings.seed + group_id,
-        )
+        with progress_bar(
+            total=settings.basinhopping_iter,
+            desc=f"MAP basinhopping group {group_id}",
+            unit="step",
+            leave=False,
+            disable=not progress_enabled,
+        ) as bar:
+            result = basinhopping(
+                scipy_objective,
+                x0=theta0,
+                niter=settings.basinhopping_iter,
+                stepsize=1.0,
+                minimizer_kwargs=minimizer_kwargs,
+                seed=settings.seed + group_id,
+                callback=lambda x, f, accept: bar.update(1),
+            )
     else:
-        result = minimize(scipy_objective, x0=theta0, **minimizer_kwargs)
+        with progress_bar(
+            total=settings.max_iter_optim,
+            desc=f"MAP group {group_id}",
+            unit="iter",
+            leave=False,
+            disable=not progress_enabled,
+        ) as bar:
+            result = minimize(
+                scipy_objective,
+                x0=theta0,
+                callback=make_optimizer_callback(bar),
+                **minimizer_kwargs,
+            )
 
     if not result.success:
-        result = minimize(
-            scipy_objective,
-            x0=theta0,
-            jac=scipy_grad,
-            bounds=Bounds(lower, upper),
-            method="L-BFGS-B",
-            options={"maxiter": settings.max_iter_optim},
-        )
+        with progress_bar(
+            total=settings.max_iter_optim,
+            desc=f"MAP fallback group {group_id}",
+            unit="iter",
+            leave=False,
+            disable=not progress_enabled,
+        ) as bar:
+            result = minimize(
+                scipy_objective,
+                x0=theta0,
+                jac=scipy_grad,
+                bounds=Bounds(lower, upper),
+                method="L-BFGS-B",
+                callback=make_optimizer_callback(bar),
+                options={"maxiter": settings.max_iter_optim},
+            )
 
     theta_map = np.asarray(result.x, dtype=float)
     try:

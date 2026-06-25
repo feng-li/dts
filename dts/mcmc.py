@@ -16,6 +16,8 @@ import jax.scipy.stats as sps_jax
 import numpy as onp
 import statsmodels.api as sm
 
+from dts.progress import progress_bar
+
 
 @dataclass(frozen=True)
 class ModelSpec:
@@ -200,6 +202,8 @@ def sampler(
     exact=False,
     n_groups: int = 1,
     random_state: Optional[int] = None,
+    progress: bool = False,
+    progress_desc: str | None = None,
 ):
     """Random-walk Metropolis sampler.
 
@@ -248,7 +252,14 @@ def sampler(
 
     log_p_current = log_posterior(params_current)
 
-    for i in range(n_samples):
+    sample_iter = progress_bar(
+        range(n_samples),
+        desc=progress_desc or "MCMC samples",
+        unit="sample",
+        leave=False,
+        disable=not progress,
+    )
+    for i in sample_iter:
         params_proposal = rng.multivariate_normal(params_current, proposal_cov)
         if _valid_process_params(params_proposal, last_arma):
             log_p_proposal = log_posterior(params_proposal)
@@ -278,6 +289,8 @@ def sampler_exact(
     params_prior_mu=0,
     params_prior_sd=1.0,
     random_state: Optional[int] = None,
+    progress: bool = False,
+    progress_desc: str | None = None,
 ):
     return sampler(
         q=q,
@@ -294,6 +307,8 @@ def sampler_exact(
         params_prior_sd=params_prior_sd,
         exact=True,
         random_state=random_state,
+        progress=progress,
+        progress_desc=progress_desc,
     )
 
 
@@ -311,6 +326,8 @@ def sampler_whittle(
     params_prior_sd=1.0,
     n_groups: int = 1,
     random_state: Optional[int] = None,
+    progress: bool = False,
+    progress_desc: str | None = None,
 ):
     return sampler(
         q=q,
@@ -328,4 +345,6 @@ def sampler_whittle(
         exact=False,
         n_groups=n_groups,
         random_state=random_state,
+        progress=progress,
+        progress_desc=progress_desc,
     )

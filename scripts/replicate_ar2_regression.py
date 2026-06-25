@@ -42,6 +42,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-optimize", action="store_true")
     parser.add_argument("--basinhopping", action="store_true")
     parser.add_argument("--basinhopping-iter", type=int, default=25)
+    parser.add_argument("--no-progress", action="store_true", help="disable progress bars")
     return parser.parse_args()
 
 
@@ -78,6 +79,7 @@ def settings_from_args(args: argparse.Namespace) -> tuple[RegressionSettings, in
             optimize=optimize,
             basinhopping=args.basinhopping,
             basinhopping_iter=args.basinhopping_iter,
+            progress=not args.no_progress,
         ),
         groups,
         max_observations,

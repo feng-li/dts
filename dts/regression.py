@@ -20,6 +20,7 @@ from dts.aggregation import consensus, simple_average
 from dts.mcmc import f_ARTFIMA, make_positive_definite, reparam
 from dts.optimization import fit_map_and_proposal
 from dts.partition import frequency_partition_indices, time_partition_indices
+from dts.progress import progress_bar
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,7 @@ class RegressionSettings:
     proposal_scale: Optional[float] = None
     basinhopping: bool = False
     basinhopping_iter: int = 25
+    progress: bool = False
 
 
 @dataclass
@@ -269,6 +271,7 @@ def regression_sampler(
     spec: RegressionSpec,
     settings: RegressionSettings,
     group_id: int = 0,
+    progress_desc: str | None = None,
 ):
     rng = onp.random.default_rng(settings.seed + 20_000 + group_id)
     theta_current = onp.asarray(theta_init, dtype=float)
@@ -277,7 +280,14 @@ def regression_sampler(
     log_p = onp.zeros(settings.n_samples)
     acceptance = onp.zeros(settings.n_samples, dtype=bool)
     logp_current = float(logp_fn(theta_current))
-    for i in range(settings.n_samples):
+    sample_iter = progress_bar(
+        range(settings.n_samples),
+        desc=progress_desc or "Regression MCMC samples",
+        unit="sample",
+        leave=False,
+        disable=not settings.progress,
+    )
+    for i in sample_iter:
         theta_proposal = rng.multivariate_normal(theta_current, proposal_cov)
         if _valid_regression_process(theta_proposal, spec):
             logp_proposal = float(logp_fn(theta_proposal))
@@ -307,6 +317,7 @@ def fit_regression_whittle_shard(
     y_hat_shard = np.asarray(y_hat[indices])
     x_hat_shard = np.asarray(x_hat[indices])
     theta0 = initial_regression_params(spec, seed=settings.seed + group_id)
+    sample_desc = "Regression MCMC full" if n_groups == 1 else f"Regression MCMC shard {group_id + 1}/{n_groups}"
 
     def logp(theta):
         return regression_log_posterior_jit(theta, y_hat_shard, x_hat_shard, omega, spec, n_groups, n_obs)
@@ -322,6 +333,7 @@ def fit_regression_whittle_shard(
         spec,
         settings,
         group_id=group_id,
+        progress_desc=sample_desc,
     )
     return RegressionShardResult(draws, log_p, acceptance, fit.theta, fit.proposal_cov, group_id=group_id)
 
@@ -338,10 +350,16 @@ def fit_regression_frequency_divide_and_conquer(
     n_freq = int(onp.floor((len(y) - 1) / 2))
     all_indices = onp.arange(n_freq)
     groups = frequency_partition_indices(n_freq, n_groups, method="systematic")
-    shards = [
-        fit_regression_whittle_shard(y_hat, x_hat, indices, spec, settings, n_groups=n_groups, group_id=gid)
-        for gid, indices in enumerate(groups)
-    ]
+    shards = []
+    for gid, indices in progress_bar(
+        enumerate(groups),
+        total=len(groups),
+        desc="regression frequency shards",
+        unit="shard",
+        leave=False,
+        disable=not settings.progress,
+    ):
+        shards.append(fit_regression_whittle_shard(y_hat, x_hat, indices, spec, settings, n_groups=n_groups, group_id=gid))
     full = None
     if include_full:
         full = fit_regression_whittle_shard(y_hat, x_hat, all_indices, spec, settings, n_groups=1, group_id=0)

@@ -38,6 +38,7 @@ from dts.experiments import (
     load_series,
 )
 from dts.mcmc import ModelSpec
+from dts.progress import progress_bar
 
 
 def parse_args() -> argparse.Namespace:
@@ -64,6 +65,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-optimize", action="store_true")
     parser.add_argument("--basinhopping", action="store_true")
     parser.add_argument("--basinhopping-iter", type=int, default=25)
+    parser.add_argument("--no-progress", action="store_true", help="disable progress bars")
     return parser.parse_args()
 
 
@@ -100,6 +102,7 @@ def settings_from_args(args: argparse.Namespace) -> tuple[MCMCSettings, int, int
             optimize=optimize,
             basinhopping=args.basinhopping,
             basinhopping_iter=args.basinhopping_iter,
+            progress=not args.no_progress,
         ),
         groups,
         max_observations,
@@ -223,7 +226,13 @@ def run_combination(
     ]
     records = []
     summary_csv = args.output_dir / "posterior_summary.csv"
-    for dataset, path, model in specs:
+    for dataset, path, model in progress_bar(
+        specs,
+        desc="combination datasets",
+        unit="dataset",
+        leave=False,
+        disable=not settings.progress,
+    ):
         data = maybe_truncate(load_series(path), max_observations)
         full = fit_full_cached(full_cache, dataset, data, model, settings)
         result = fit_frequency_divide_and_conquer(
@@ -273,9 +282,21 @@ def run_group_size(
     ]
     records = []
     summary_csv = args.output_dir / "posterior_summary.csv"
-    for model_name, model in models:
+    for model_name, model in progress_bar(
+        models,
+        desc="group-size models",
+        unit="model",
+        leave=False,
+        disable=not settings.progress,
+    ):
         full = fit_full_cached(full_cache, "sim_artfima", data, model, settings)
-        for groups in group_values:
+        for groups in progress_bar(
+            group_values,
+            desc=f"{model_name} group sizes",
+            unit="G",
+            leave=False,
+            disable=not settings.progress,
+        ):
             if groups >= (len(data) - 1) // 2:
                 continue
             result = fit_frequency_divide_and_conquer(
@@ -304,7 +325,13 @@ def run_partition(
     full = fit_full_cached(full_cache, "sim_artfima", data, model, settings)
     summary_csv = args.output_dir / "posterior_summary.csv"
     records = []
-    for partition in ["systematic", "sequential"]:
+    for partition in progress_bar(
+        ["systematic", "sequential"],
+        desc="partition methods",
+        unit="method",
+        leave=False,
+        disable=not settings.progress,
+    ):
         result = fit_frequency_divide_and_conquer(
             data,
             model,
@@ -379,14 +406,20 @@ def main() -> None:
         "records": [],
     }
 
-    if "combination" in experiments:
-        manifest["records"].extend(run_combination(args, settings, groups, max_observations, full_cache))
-    if "group-size" in experiments:
-        manifest["records"].extend(run_group_size(args, settings, max_observations, full_cache))
-    if "partition" in experiments:
-        manifest["records"].extend(run_partition(args, settings, groups, max_observations, full_cache))
-    if "time-frequency" in experiments:
-        manifest["records"].extend(run_time_frequency(args, settings, groups, max_observations, full_cache))
+    for experiment in progress_bar(
+        experiments,
+        desc="experiments",
+        unit="experiment",
+        disable=not settings.progress,
+    ):
+        if experiment == "combination":
+            manifest["records"].extend(run_combination(args, settings, groups, max_observations, full_cache))
+        elif experiment == "group-size":
+            manifest["records"].extend(run_group_size(args, settings, max_observations, full_cache))
+        elif experiment == "partition":
+            manifest["records"].extend(run_partition(args, settings, groups, max_observations, full_cache))
+        elif experiment == "time-frequency":
+            manifest["records"].extend(run_time_frequency(args, settings, groups, max_observations, full_cache))
 
     with (args.output_dir / "manifest.json").open("w") as handle:
         json.dump(manifest, handle, indent=2)

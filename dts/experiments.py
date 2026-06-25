@@ -23,6 +23,7 @@ from dts.mcmc import (
 )
 from dts.optimization import fit_map_and_proposal
 from dts.partition import frequency_domain, shard_frequency_domain, time_partition_indices
+from dts.progress import progress_bar
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,7 @@ class MCMCSettings:
     proposal_scale: Optional[float] = None
     basinhopping: bool = False
     basinhopping_iter: int = 25
+    progress: bool = False
 
 
 @dataclass
@@ -104,6 +106,7 @@ def fit_whittle_shard(
     periodogram = jnp.asarray(periodogram)
     omega = jnp.asarray(omega)
     theta0 = initial_params(model, seed=settings.seed + group_id)
+    sample_desc = "MCMC full" if n_groups == 1 else f"MCMC shard {group_id + 1}/{n_groups}"
 
     def logp(theta):
         return whittle_log_posterior(theta, model, periodogram, omega, n_groups=n_groups)
@@ -126,6 +129,8 @@ def fit_whittle_shard(
         exact=False,
         n_groups=n_groups,
         random_state=settings.seed + 10_000 + group_id,
+        progress=settings.progress,
+        progress_desc=sample_desc,
     )
     return ShardResult(draws, log_p, acceptance, fit.theta, fit.proposal_cov, group_id=group_id)
 
@@ -145,8 +150,14 @@ def fit_frequency_divide_and_conquer(
 ) -> DistributedResult:
     """Run Whittle MCMC on frequency shards and aggregate draws."""
     shards = []
-    for group_id, (_, shard_periodogram, shard_omega) in enumerate(
-        shard_frequency_domain(data, n_groups=n_groups, method=partition)
+    shard_data = shard_frequency_domain(data, n_groups=n_groups, method=partition)
+    for group_id, (_, shard_periodogram, shard_omega) in progress_bar(
+        enumerate(shard_data),
+        total=len(shard_data),
+        desc=f"{partition} frequency shards",
+        unit="shard",
+        leave=False,
+        disable=not settings.progress,
     ):
         shards.append(
             fit_whittle_shard(
@@ -184,7 +195,15 @@ def fit_time_domain_as_frequency_shards(
     analyzed independently, which loses global low-frequency information.
     """
     shards = []
-    for group_id, indices in enumerate(time_partition_indices(len(data), n_groups)):
+    groups = time_partition_indices(len(data), n_groups)
+    for group_id, indices in progress_bar(
+        enumerate(groups),
+        total=len(groups),
+        desc="time shards",
+        unit="shard",
+        leave=False,
+        disable=not settings.progress,
+    ):
         values, omega = frequency_domain(data[indices])
         shards.append(
             fit_whittle_shard(
