@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 from typing import Optional, Tuple
 
 from dts._jax import configure_jax
 
 configure_jax()
 
+from jax import jit
 import jax.numpy as np
 import jax.scipy.stats as sps_jax
 import numpy as onp
@@ -87,6 +89,32 @@ def whittle_log_likelihood(params, q, p, I_pg, TFI_term, omega_shard):
     theta = reparam(params[q : q + p], MA=True) if p > 0 else np.array([])
     density = f_ARTFIMA(omega_shard, phi, theta, var, d, lambda_)
     return -(np.log(density) + I_pg / density)
+
+
+@partial(jit, static_argnames=("q", "p", "TFI_term", "last_arma"))
+def whittle_log_posterior_jit(
+    theta,
+    q: int,
+    p: int,
+    I_pg,
+    TFI_term: bool,
+    omega_shard,
+    n_groups: int,
+    params_prior_mu: float,
+    params_prior_sd: float,
+    last_arma: int,
+):
+    log_likelihood = whittle_log_likelihood(theta, q, p, I_pg, TFI_term, omega_shard)
+    prior = log_prior(
+        theta,
+        params_prior_mu,
+        params_prior_sd,
+        last_arma,
+        TFI_term,
+        n_groups=n_groups,
+        check_bounds=False,
+    )
+    return np.sum(log_likelihood) + prior
 
 
 def exact_log_likelihood_arma(data, params, q, p):
@@ -183,6 +211,8 @@ def sampler(
     proposal_cov = make_positive_definite(proposal_width)
     n_params = len(params_current)
     last_arma = 3 if TFI_term else 1
+    I_pg_jax = None if exact else np.asarray(I_pg)
+    omega_shard_jax = None if exact else np.asarray(omega_shard)
 
     posterior_samples = onp.zeros((n_samples, n_params))
     log_p = onp.zeros(n_samples)
@@ -191,18 +221,30 @@ def sampler(
     def log_posterior(theta):
         if exact:
             log_likelihood = exact_log_likelihood_arma(data, theta, q, p)
-        else:
-            log_likelihood = whittle_log_likelihood(theta, q, p, I_pg, TFI_term, omega_shard)
-        prior = log_prior(
-            theta,
-            params_prior_mu,
-            params_prior_sd,
-            last_arma,
-            TFI_term,
-            n_groups=n_groups,
-            check_bounds=False,
+            prior = log_prior(
+                theta,
+                params_prior_mu,
+                params_prior_sd,
+                last_arma,
+                TFI_term,
+                n_groups=n_groups,
+                check_bounds=False,
+            )
+            return float(onp.sum(log_likelihood) + prior)
+        return float(
+            whittle_log_posterior_jit(
+                theta,
+                q,
+                p,
+                I_pg_jax,
+                TFI_term,
+                omega_shard_jax,
+                n_groups,
+                params_prior_mu,
+                params_prior_sd,
+                last_arma,
+            )
         )
-        return float(onp.sum(log_likelihood) + prior)
 
     log_p_current = log_posterior(params_current)
 

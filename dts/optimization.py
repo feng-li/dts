@@ -9,7 +9,7 @@ from dts._jax import configure_jax
 
 configure_jax()
 
-from jax import grad, hessian
+from jax import grad, hessian, jit
 import numpy as np
 from scipy.optimize import Bounds, basinhopping, minimize
 
@@ -52,17 +52,29 @@ def fit_map_and_proposal(
     if not settings.optimize:
         return MapEstimate(theta=theta_map, proposal_cov=proposal_cov)
 
-    hess_objective = hessian(objective)
+    objective_jit = jit(objective)
+    grad_objective = jit(grad(objective))
+    hess_objective = jit(hessian(objective))
+
+    def scipy_objective(theta):
+        return float(objective_jit(theta))
+
+    def scipy_grad(theta):
+        return np.asarray(grad_objective(theta), dtype=float)
+
+    def scipy_hess(theta):
+        return np.asarray(hess_objective(theta), dtype=float)
+
     minimizer_kwargs = {
-        "jac": grad(objective),
-        "hess": hess_objective,
+        "jac": scipy_grad,
+        "hess": scipy_hess,
         "bounds": Bounds(lower, upper, keep_feasible=True),
         "method": "trust-constr",
         "options": {"gtol": settings.gtol, "maxiter": settings.max_iter_optim},
     }
     if settings.basinhopping:
         result = basinhopping(
-            objective,
+            scipy_objective,
             x0=theta0,
             niter=settings.basinhopping_iter,
             stepsize=1.0,
@@ -70,13 +82,13 @@ def fit_map_and_proposal(
             seed=settings.seed + group_id,
         )
     else:
-        result = minimize(objective, x0=theta0, **minimizer_kwargs)
+        result = minimize(scipy_objective, x0=theta0, **minimizer_kwargs)
 
     if not result.success:
         result = minimize(
-            objective,
+            scipy_objective,
             x0=theta0,
-            jac=grad(objective),
+            jac=scipy_grad,
             bounds=Bounds(lower, upper),
             method="L-BFGS-B",
             options={"maxiter": settings.max_iter_optim},
@@ -84,7 +96,7 @@ def fit_map_and_proposal(
 
     theta_map = np.asarray(result.x, dtype=float)
     try:
-        target_cov = np.linalg.inv(make_positive_definite(np.asarray(hess_objective(theta_map))))
+        target_cov = np.linalg.inv(make_positive_definite(scipy_hess(theta_map)))
     except np.linalg.LinAlgError:
         target_cov = np.eye(n_params) * fallback_cov_scale
     scale = settings.proposal_scale or (2.38 / np.sqrt(n_params))

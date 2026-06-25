@@ -31,6 +31,7 @@ from dts.aggregation import (
 )
 from dts.experiments import (
     MCMCSettings,
+    ShardResult,
     fit_frequency_divide_and_conquer,
     fit_full_whittle,
     fit_time_domain_as_frequency_shards,
@@ -110,6 +111,22 @@ def maybe_truncate(data: np.ndarray, max_observations: int | None) -> np.ndarray
     if max_observations is None:
         return data
     return data[:max_observations]
+
+
+FullFitCache = dict[tuple[str, int, ModelSpec], ShardResult]
+
+
+def fit_full_cached(
+    cache: FullFitCache,
+    dataset: str,
+    data: np.ndarray,
+    model: ModelSpec,
+    settings: MCMCSettings,
+) -> ShardResult:
+    key = (dataset, len(data), model)
+    if key not in cache:
+        cache[key] = fit_full_whittle(data, model, settings)
+    return cache[key]
 
 
 def save_draw_summary(
@@ -193,7 +210,13 @@ def plot_marginals(
     plt.close(fig)
 
 
-def run_combination(args, settings: MCMCSettings, groups: int, max_observations: int | None) -> list[dict]:
+def run_combination(
+    args,
+    settings: MCMCSettings,
+    groups: int,
+    max_observations: int | None,
+    full_cache: FullFitCache,
+) -> list[dict]:
     specs = [
         ("sim_artfima", args.data_dir / "SimARTFIMA11.txt", ModelSpec(q=1, p=1, tfi_term=True)),
         ("vancouver", args.data_dir / "Vancouver.npy", ModelSpec(q=1, p=2, tfi_term=False)),
@@ -202,24 +225,25 @@ def run_combination(args, settings: MCMCSettings, groups: int, max_observations:
     summary_csv = args.output_dir / "posterior_summary.csv"
     for dataset, path, model in specs:
         data = maybe_truncate(load_series(path), max_observations)
+        full = fit_full_cached(full_cache, dataset, data, model, settings)
         result = fit_frequency_divide_and_conquer(
             data,
             model,
             settings,
             n_groups=groups,
             partition="systematic",
-            include_full=True,
+            include_full=False,
         )
         plot_marginals(
             args.output_dir / f"{dataset}_combination.png",
             dataset,
             model,
-            result.full.draws if result.full else None,
+            full.draws,
             result.consensus_draws,
             average_draws=result.average_draws,
             shard_draws=[item.draws for item in result.shards],
         )
-        reference = result.full.draws if result.full else None
+        reference = full.draws
         save_draw_summary(summary_csv, dataset, "full", model, reference)
         save_draw_summary(summary_csv, dataset, "consensus", model, result.consensus_draws, reference=reference)
         save_draw_summary(summary_csv, dataset, "average", model, result.average_draws, reference=reference)
@@ -235,7 +259,12 @@ def run_combination(args, settings: MCMCSettings, groups: int, max_observations:
     return records
 
 
-def run_group_size(args, settings: MCMCSettings, max_observations: int | None) -> list[dict]:
+def run_group_size(
+    args,
+    settings: MCMCSettings,
+    max_observations: int | None,
+    full_cache: FullFitCache,
+) -> list[dict]:
     data = maybe_truncate(load_series(args.data_dir / "SimARTFIMA11.txt"), max_observations)
     group_values = [2, 4] if args.preset == "quick" else [10, 100, 1000]
     models = [
@@ -245,7 +274,7 @@ def run_group_size(args, settings: MCMCSettings, max_observations: int | None) -
     records = []
     summary_csv = args.output_dir / "posterior_summary.csv"
     for model_name, model in models:
-        full = fit_full_whittle(data, model, settings)
+        full = fit_full_cached(full_cache, "sim_artfima", data, model, settings)
         for groups in group_values:
             if groups >= (len(data) - 1) // 2:
                 continue
@@ -263,10 +292,16 @@ def run_group_size(args, settings: MCMCSettings, max_observations: int | None) -
     return records
 
 
-def run_partition(args, settings: MCMCSettings, groups: int, max_observations: int | None) -> list[dict]:
+def run_partition(
+    args,
+    settings: MCMCSettings,
+    groups: int,
+    max_observations: int | None,
+    full_cache: FullFitCache,
+) -> list[dict]:
     data = maybe_truncate(load_series(args.data_dir / "SimARTFIMA11.txt"), max_observations)
     model = ModelSpec(q=1, p=1, tfi_term=True)
-    full = fit_full_whittle(data, model, settings)
+    full = fit_full_cached(full_cache, "sim_artfima", data, model, settings)
     summary_csv = args.output_dir / "posterior_summary.csv"
     records = []
     for partition in ["systematic", "sequential"]:
@@ -283,10 +318,16 @@ def run_partition(args, settings: MCMCSettings, groups: int, max_observations: i
     return records
 
 
-def run_time_frequency(args, settings: MCMCSettings, groups: int, max_observations: int | None) -> list[dict]:
+def run_time_frequency(
+    args,
+    settings: MCMCSettings,
+    groups: int,
+    max_observations: int | None,
+    full_cache: FullFitCache,
+) -> list[dict]:
     data = maybe_truncate(load_series(args.data_dir / "Vancouver.npy"), max_observations)
     model = ModelSpec(q=1, p=0, tfi_term=False)
-    full = fit_full_whittle(data, model, settings)
+    full = fit_full_cached(full_cache, "vancouver", data, model, settings)
     summary_csv = args.output_dir / "posterior_summary.csv"
     records = []
     frequency = fit_frequency_divide_and_conquer(
@@ -323,6 +364,7 @@ def main() -> None:
     experiments = args.experiments
     if "all" in experiments:
         experiments = ["combination", "group-size", "partition", "time-frequency"]
+    full_cache: FullFitCache = {}
 
     manifest = {
         "preset": args.preset,
@@ -338,13 +380,13 @@ def main() -> None:
     }
 
     if "combination" in experiments:
-        manifest["records"].extend(run_combination(args, settings, groups, max_observations))
+        manifest["records"].extend(run_combination(args, settings, groups, max_observations, full_cache))
     if "group-size" in experiments:
-        manifest["records"].extend(run_group_size(args, settings, max_observations))
+        manifest["records"].extend(run_group_size(args, settings, max_observations, full_cache))
     if "partition" in experiments:
-        manifest["records"].extend(run_partition(args, settings, groups, max_observations))
+        manifest["records"].extend(run_partition(args, settings, groups, max_observations, full_cache))
     if "time-frequency" in experiments:
-        manifest["records"].extend(run_time_frequency(args, settings, groups, max_observations))
+        manifest["records"].extend(run_time_frequency(args, settings, groups, max_observations, full_cache))
 
     with (args.output_dir / "manifest.json").open("w") as handle:
         json.dump(manifest, handle, indent=2)

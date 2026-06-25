@@ -101,6 +101,8 @@ def fit_whittle_shard(
     group_id: int = 0,
 ) -> ShardResult:
     """Fit one Whittle subposterior."""
+    periodogram = jnp.asarray(periodogram)
+    omega = jnp.asarray(omega)
     theta0 = initial_params(model, seed=settings.seed + group_id)
 
     def logp(theta):

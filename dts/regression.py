@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +11,7 @@ from dts._jax import configure_jax
 
 configure_jax()
 
+from jax import jit
 import jax.numpy as np
 import jax.scipy.stats as sps_jax
 import numpy as onp
@@ -159,9 +161,11 @@ def regression_frequency_domain(x: np.ndarray, y: np.ndarray):
     return onp.fft.fft(x, axis=0), onp.fft.fft(y)
 
 
-def residual_periodogram(y_hat, x_hat, beta):
+def residual_periodogram(y_hat, x_hat, beta, n_obs: int | None = None):
+    if n_obs is None:
+        n_obs = len(y_hat)
     residual_hat = y_hat - np.dot(x_hat, beta)
-    return np.square(np.abs(residual_hat)) / (2.0 * np.pi * len(y_hat))
+    return np.square(np.abs(residual_hat)) / (2.0 * np.pi * n_obs)
 
 
 def regression_log_prior(
@@ -193,7 +197,18 @@ def regression_log_prior(
     return (prior_process + prior_beta + prior_tail) / n_groups
 
 
-def regression_whittle_log_likelihood(params, y_hat, x_hat, spec: RegressionSpec, indices):
+def regression_whittle_log_likelihood(params, y_hat, x_hat, spec: RegressionSpec, frequencies, n_obs: int | None = None):
+    if n_obs is None:
+        indices = frequencies
+        omega = 2.0 * np.pi * np.asarray(indices) / len(y_hat)
+        y_eval = y_hat[indices]
+        x_eval = x_hat[indices]
+        n_obs = len(y_hat)
+    else:
+        omega = frequencies
+        y_eval = y_hat
+        x_eval = x_hat
+
     beta = params[spec.beta_slice]
     if spec.tfi_term:
         d = params[-1]
@@ -206,16 +221,28 @@ def regression_whittle_log_likelihood(params, y_hat, x_hat, spec: RegressionSpec
 
     phi = reparam(params[: spec.q], MA=False) if spec.q else np.array([])
     theta = reparam(params[spec.q : spec.q + spec.p], MA=True) if spec.p else np.array([])
-    omega = 2.0 * np.pi * np.asarray(indices) / len(y_hat)
     density = f_ARTFIMA(omega, phi, theta, var, d, lambda_)
-    periodogram = residual_periodogram(y_hat, x_hat, beta)
-    return -(np.log(density) + periodogram[indices] / density)
+    periodogram = residual_periodogram(y_eval, x_eval, beta, n_obs=n_obs)
+    return -(np.log(density) + periodogram / density)
 
 
-def regression_log_posterior(params, y_hat, x_hat, spec: RegressionSpec, indices, n_groups: int = 1):
-    return np.sum(regression_whittle_log_likelihood(params, y_hat, x_hat, spec, indices)) + regression_log_prior(
-        params, spec, n_groups=n_groups
-    )
+def regression_log_posterior(
+    params,
+    y_hat,
+    x_hat,
+    spec: RegressionSpec,
+    frequencies,
+    n_groups: int = 1,
+    n_obs: int | None = None,
+):
+    return np.sum(
+        regression_whittle_log_likelihood(params, y_hat, x_hat, spec, frequencies, n_obs=n_obs)
+    ) + regression_log_prior(params, spec, n_groups=n_groups)
+
+
+@partial(jit, static_argnames=("spec",))
+def regression_log_posterior_jit(params, y_hat, x_hat, omega, spec: RegressionSpec, n_groups: int, n_obs: int):
+    return regression_log_posterior(params, y_hat, x_hat, spec, omega, n_groups=n_groups, n_obs=n_obs)
 
 
 def regression_parameter_bounds(spec: RegressionSpec):
@@ -274,10 +301,15 @@ def fit_regression_whittle_shard(
     n_groups: int = 1,
     group_id: int = 0,
 ) -> RegressionShardResult:
+    indices = onp.asarray(indices, dtype=int)
+    n_obs = len(y_hat)
+    omega = np.asarray(2.0 * onp.pi * indices / n_obs)
+    y_hat_shard = np.asarray(y_hat[indices])
+    x_hat_shard = np.asarray(x_hat[indices])
     theta0 = initial_regression_params(spec, seed=settings.seed + group_id)
 
     def logp(theta):
-        return regression_log_posterior(theta, y_hat, x_hat, spec, indices, n_groups=n_groups)
+        return regression_log_posterior_jit(theta, y_hat_shard, x_hat_shard, omega, spec, n_groups, n_obs)
 
     lower, upper = regression_parameter_bounds(spec)
     objective = lambda theta: -logp(theta)
