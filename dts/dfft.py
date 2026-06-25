@@ -50,38 +50,8 @@ def spark_fft_rdd(rdd, series_length: int | None = None):
     """
     n_obs = int(series_length or rdd.count())
     partitions = rdd.getNumPartitions()
-    if partitions < 1 or (partitions & (partitions - 1)) != 0:
-        raise ValueError("RDD partition count must be a power of two")
-    if n_obs % partitions:
-        raise ValueError("series length must be divisible by the RDD partition count")
-
-    block_size = n_obs // partitions
-    subffts = (
-        rdd.zipWithIndex()
-        .map(lambda item: (item[1] % partitions, (item[1], item[0])))
-        .groupByKey(numPartitions=partitions)
-        .flatMap(lambda kv: _compute_subfft(kv, partitions, block_size))
-        .cache()
-    )
-    twiddled = subffts.map(
-        lambda item: (
-            item[0],
-            item[1],
-            item[2]
-            * cmath.exp(-2j * math.pi * (item[0] // block_size) * (item[0] % block_size) / n_obs),
-        )
-    )
-    grouped = twiddled.map(lambda item: (item[0] % block_size, (item[1], item[2]))).groupByKey(
-        numPartitions=block_size
-    )
-
-    def second_stage(grouped_pair):
-        r, seq = grouped_pair
-        vals = [value for _, value in sorted(seq, key=lambda item: item[0])]
-        for q, fft_value in enumerate(np.fft.fft(vals)):
-            yield (q * block_size + r, fft_value)
-
-    return grouped.flatMap(second_stage).sortByKey()
+    indexed = rdd.zipWithIndex().map(lambda item: (int(item[1]), item[0]))
+    return spark_fft_indexed_rdd(indexed, n_obs, partitions)
 
 
 def spark_fft_indexed_rdd(indexed_rdd, series_length: int, partitions: int):

@@ -31,6 +31,8 @@ Reorganize the current repository around `docs/Manuscript_2026_Zi.tex` so the ma
 - `dts/regression.py`: AR(2) regression with ARMA/ARTFIMA errors for the DC-BATS comparison.
 - `dts/artifacts.py`: stack per-shard MCMC draw/log-p artifacts.
 - `dts/_jax.py`: central JAX runtime configuration for CPU and 64-bit autodiff.
+- `dts/optimization.py`: shared MAP optimization and proposal covariance setup.
+- `dts/runtime.py`: command-line warning setup for replication scripts.
 
 ## Replication Mapping
 

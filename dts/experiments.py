@@ -10,20 +10,18 @@ from dts._jax import configure_jax
 
 configure_jax()
 
-from jax import grad, hessian
 import jax.numpy as jnp
 import numpy as np
-from scipy.optimize import Bounds, basinhopping, minimize
 
 from dts.aggregation import consensus, simple_average
 from dts.mcmc import (
     ModelSpec,
     log_prior,
-    make_positive_definite,
     parameter_bounds,
     sampler,
     whittle_log_likelihood,
 )
+from dts.optimization import fit_map_and_proposal
 from dts.partition import frequency_domain, shard_frequency_domain, time_partition_indices
 
 
@@ -109,48 +107,8 @@ def fit_whittle_shard(
         return whittle_log_posterior(theta, model, periodogram, omega, n_groups=n_groups)
 
     lower, upper = parameter_bounds(model.n_params, model.tfi_term)
-    proposal_cov = np.eye(model.n_params) * 0.02
-    theta_map = theta0
-
-    if settings.optimize:
-        def objective(theta):
-            return -logp(theta)
-
-        hess_objective = hessian(objective)
-        minimizer_kwargs = {
-            "jac": grad(objective),
-            "hess": hess_objective,
-            "bounds": Bounds(lower, upper, keep_feasible=True),
-            "method": "trust-constr",
-            "options": {"gtol": settings.gtol, "maxiter": settings.max_iter_optim},
-        }
-        if settings.basinhopping:
-            result = basinhopping(
-                objective,
-                x0=theta0,
-                niter=settings.basinhopping_iter,
-                stepsize=1.0,
-                minimizer_kwargs=minimizer_kwargs,
-                seed=settings.seed + group_id,
-            )
-        else:
-            result = minimize(objective, x0=theta0, **minimizer_kwargs)
-        if not result.success:
-            result = minimize(
-                objective,
-                x0=theta0,
-                jac=grad(objective),
-                bounds=Bounds(lower, upper),
-                method="L-BFGS-B",
-                options={"maxiter": settings.max_iter_optim},
-            )
-        theta_map = np.asarray(result.x, dtype=float)
-        try:
-            target_cov = np.linalg.inv(make_positive_definite(np.asarray(hess_objective(theta_map))))
-        except np.linalg.LinAlgError:
-            target_cov = np.eye(model.n_params) * 0.05
-        scale = settings.proposal_scale or (2.38 / np.sqrt(model.n_params))
-        proposal_cov = make_positive_definite(scale * target_cov)
+    objective = lambda theta: -logp(theta)
+    fit = fit_map_and_proposal(objective, theta0, lower, upper, settings, group_id=group_id)
 
     draws, log_p, acceptance = sampler(
         model.q,
@@ -160,14 +118,14 @@ def fit_whittle_shard(
         TFI_term=model.tfi_term,
         omega_shard=omega,
         n_samples=settings.n_samples,
-        paramsStar=theta_map,
-        proposal_width=proposal_cov,
+        paramsStar=fit.theta,
+        proposal_width=fit.proposal_cov,
         Burn_in=settings.burn_in,
         exact=False,
         n_groups=n_groups,
         random_state=settings.seed + 10_000 + group_id,
     )
-    return ShardResult(draws, log_p, acceptance, theta_map, proposal_cov, group_id=group_id)
+    return ShardResult(draws, log_p, acceptance, fit.theta, fit.proposal_cov, group_id=group_id)
 
 
 def fit_full_whittle(data: np.ndarray, model: ModelSpec, settings: MCMCSettings) -> ShardResult:

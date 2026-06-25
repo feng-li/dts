@@ -10,14 +10,13 @@ from dts._jax import configure_jax
 
 configure_jax()
 
-from jax import grad, hessian
 import jax.numpy as np
 import jax.scipy.stats as sps_jax
 import numpy as onp
-from scipy.optimize import Bounds, basinhopping, minimize
 
 from dts.aggregation import consensus, simple_average
 from dts.mcmc import f_ARTFIMA, make_positive_definite, reparam
+from dts.optimization import fit_map_and_proposal
 from dts.partition import frequency_partition_indices, time_partition_indices
 
 
@@ -280,43 +279,19 @@ def fit_regression_whittle_shard(
     def logp(theta):
         return regression_log_posterior(theta, y_hat, x_hat, spec, indices, n_groups=n_groups)
 
-    theta_map = theta0
-    proposal_cov = onp.eye(spec.n_params) * 0.02
     lower, upper = regression_parameter_bounds(spec)
+    objective = lambda theta: -logp(theta)
+    fit = fit_map_and_proposal(objective, theta0, lower, upper, settings, group_id=group_id)
 
-    if settings.optimize:
-        def objective(theta):
-            return -logp(theta)
-
-        hess_objective = hessian(objective)
-        minimizer_kwargs = {
-            "method": "trust-constr",
-            "jac": grad(objective),
-            "hess": hess_objective,
-            "bounds": Bounds(lower, upper, keep_feasible=True),
-            "options": {"gtol": settings.gtol, "maxiter": settings.max_iter_optim},
-        }
-        if settings.basinhopping:
-            result = basinhopping(
-                objective,
-                x0=theta0,
-                niter=settings.basinhopping_iter,
-                stepsize=1.0,
-                minimizer_kwargs=minimizer_kwargs,
-                seed=settings.seed + group_id,
-            )
-        else:
-            result = minimize(objective, x0=theta0, **minimizer_kwargs)
-        theta_map = onp.asarray(result.x, dtype=float)
-        try:
-            cov = onp.linalg.inv(make_positive_definite(onp.asarray(hess_objective(theta_map))))
-        except onp.linalg.LinAlgError:
-            cov = onp.eye(spec.n_params) * 0.05
-        scale = settings.proposal_scale or (2.38 / onp.sqrt(spec.n_params))
-        proposal_cov = make_positive_definite(scale * cov)
-
-    draws, log_p, acceptance = regression_sampler(theta_map, proposal_cov, logp, spec, settings, group_id=group_id)
-    return RegressionShardResult(draws, log_p, acceptance, theta_map, proposal_cov, group_id=group_id)
+    draws, log_p, acceptance = regression_sampler(
+        fit.theta,
+        fit.proposal_cov,
+        logp,
+        spec,
+        settings,
+        group_id=group_id,
+    )
+    return RegressionShardResult(draws, log_p, acceptance, fit.theta, fit.proposal_cov, group_id=group_id)
 
 
 def fit_regression_frequency_divide_and_conquer(

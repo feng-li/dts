@@ -31,6 +31,9 @@ mutable arrays, file I/O, and SciPy/statsmodels interop.
 - `artifacts/`: generated outputs. This directory is ignored by git.
 - `legacy/`: old migrated helpers retained only for reference.
 
+Within `dts/`, `optimization.py` owns the shared JAX MAP/proposal-covariance
+routine, and `runtime.py` owns command-line warning setup.
+
 ## Installation
 
 Use the existing project environment when available:
