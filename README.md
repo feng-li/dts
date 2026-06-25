@@ -36,13 +36,13 @@ mutable arrays, file I/O, and SciPy/statsmodels interop.
 Use the existing project environment when available:
 
 ```sh
-/home/fli/.virtualenvs/py3.12-spark4/bin/python -m pip install -e .
+python -m pip install -e .
 ```
 
 For Spark runs, install the optional dependency:
 
 ```sh
-/home/fli/.virtualenvs/py3.12-spark4/bin/python -m pip install -e ".[spark]"
+python -m pip install -e ".[spark]"
 ```
 
 The package dependencies are declared in `pyproject.toml`. `requirements.txt`
@@ -53,12 +53,12 @@ is kept for environment recreation.
 Run the fast local checks before starting manuscript-scale jobs:
 
 ```sh
-/home/fli/.virtualenvs/py3.12-spark4/bin/python scripts/replicate_main_results.py \
+python scripts/replicate_main_results.py \
   --preset quick \
   --experiments all \
   --output-dir artifacts/quick_main
 
-/home/fli/.virtualenvs/py3.12-spark4/bin/python scripts/replicate_ar2_regression.py \
+python scripts/replicate_ar2_regression.py \
   --preset quick \
   --output-dir artifacts/quick_ar2
 ```
@@ -72,11 +72,11 @@ Full manuscript-scale runs use 15,000 MCMC iterations with 5,000 burn-in and
 can take a long time:
 
 ```sh
-/home/fli/.virtualenvs/py3.12-spark4/bin/python scripts/replicate_main_results.py \
+python scripts/replicate_main_results.py \
   --preset paper \
   --experiments all
 
-/home/fli/.virtualenvs/py3.12-spark4/bin/python scripts/replicate_ar2_regression.py \
+python scripts/replicate_ar2_regression.py \
   --preset paper
 ```
 
@@ -103,24 +103,10 @@ spark-submit scripts/run_spark_mcmc.py \
 Check the Spark FFT implementation independently:
 
 ```sh
-/home/fli/.virtualenvs/py3.12-spark4/bin/python scripts/check_dfft.py \
+python scripts/check_dfft.py \
   --n 160 \
   --partitions 8
 ```
 
 Use `scripts/stack_shard_draws.py` for legacy shard files named
 `shardXX_draws.npy` and `shardXX_logp.npy`.
-
-## Development Checks
-
-Before committing changes, run:
-
-```sh
-git diff --check
-/home/fli/.virtualenvs/py3.12-spark4/bin/python -m py_compile \
-  dts/*.py scripts/*.py figures/*.py section4_experiments/*.py \
-  section5_applications/*.py DFFT/*.py legacy/dts/*.py
-```
-
-For changes touching inference code, also run the quick validation commands
-above. Commit local changes before pulling or rebasing from the remote.
