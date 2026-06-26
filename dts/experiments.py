@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Optional
 
@@ -24,6 +24,7 @@ from dts.mcmc import (
 from dts.optimization import fit_map_and_proposal
 from dts.partition import frequency_domain, shard_frequency_domain, time_partition_indices
 from dts.progress import progress_bar
+from dts.ray_backend import resolve_shard_backend, run_indexed_ray_tasks
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,9 @@ class MCMCSettings:
     basinhopping: bool = False
     basinhopping_iter: int = 25
     progress: bool = False
+    backend: str = "auto"
+    num_cpus: int | None = None
+    ray_address: str | None = None
 
 
 @dataclass
@@ -140,6 +144,70 @@ def fit_full_whittle(data: np.ndarray, model: ModelSpec, settings: MCMCSettings)
     return fit_whittle_shard(values, omega, model, settings, n_groups=1, group_id=0)
 
 
+def _fit_whittle_shard_payload(payload):
+    index, shard_periodogram, shard_omega, model, settings, n_groups, group_id = payload
+    return index, fit_whittle_shard(
+        shard_periodogram,
+        shard_omega,
+        model,
+        settings,
+        n_groups=n_groups,
+        group_id=group_id,
+    )
+
+
+def _worker_settings(settings: MCMCSettings) -> MCMCSettings:
+    return replace(settings, progress=False, backend="local")
+
+
+def _fit_whittle_shards(
+    shard_data: list[tuple[np.ndarray, np.ndarray, np.ndarray]],
+    model: ModelSpec,
+    settings: MCMCSettings,
+    n_groups: int,
+    desc: str,
+) -> list[ShardResult]:
+    backend = resolve_shard_backend(settings.backend, settings.num_cpus)
+    if backend == "local":
+        shards = []
+        for group_id, (_, shard_periodogram, shard_omega) in progress_bar(
+            enumerate(shard_data),
+            total=len(shard_data),
+            desc=desc,
+            unit="shard",
+            leave=False,
+            disable=not settings.progress,
+        ):
+            shards.append(
+                fit_whittle_shard(
+                    shard_periodogram,
+                    shard_omega,
+                    model,
+                    settings,
+                    n_groups=n_groups,
+                    group_id=group_id,
+                )
+            )
+        return shards
+
+    if backend == "ray":
+        worker_settings = _worker_settings(settings)
+        payloads = [
+            (group_id, shard_periodogram, shard_omega, model, worker_settings, n_groups, group_id)
+            for group_id, (_, shard_periodogram, shard_omega) in enumerate(shard_data)
+        ]
+        return run_indexed_ray_tasks(
+            _fit_whittle_shard_payload,
+            payloads,
+            address=settings.ray_address,
+            num_cpus=settings.num_cpus,
+            progress=settings.progress,
+            desc=f"ray {desc}",
+        )
+
+    raise ValueError(f"unknown MCMC backend: {settings.backend!r}")
+
+
 def fit_frequency_divide_and_conquer(
     data: np.ndarray,
     model: ModelSpec,
@@ -149,26 +217,14 @@ def fit_frequency_divide_and_conquer(
     include_full: bool = True,
 ) -> DistributedResult:
     """Run Whittle MCMC on frequency shards and aggregate draws."""
-    shards = []
     shard_data = shard_frequency_domain(data, n_groups=n_groups, method=partition)
-    for group_id, (_, shard_periodogram, shard_omega) in progress_bar(
-        enumerate(shard_data),
-        total=len(shard_data),
+    shards = _fit_whittle_shards(
+        shard_data,
+        model,
+        settings,
+        n_groups,
         desc=f"{partition} frequency shards",
-        unit="shard",
-        leave=False,
-        disable=not settings.progress,
-    ):
-        shards.append(
-            fit_whittle_shard(
-                shard_periodogram,
-                shard_omega,
-                model,
-                settings,
-                n_groups=n_groups,
-                group_id=group_id,
-            )
-        )
+    )
 
     full = fit_full_whittle(data, model, settings) if include_full else None
     shard_draws = [item.draws for item in shards]
@@ -194,27 +250,18 @@ def fit_time_domain_as_frequency_shards(
     This reproduces the comparison logic in the paper: each shorter segment is
     analyzed independently, which loses global low-frequency information.
     """
-    shards = []
     groups = time_partition_indices(len(data), n_groups)
-    for group_id, indices in progress_bar(
-        enumerate(groups),
-        total=len(groups),
-        desc="time shards",
-        unit="shard",
-        leave=False,
-        disable=not settings.progress,
-    ):
+    shard_data = []
+    for indices in groups:
         values, omega = frequency_domain(data[indices])
-        shards.append(
-            fit_whittle_shard(
-                values,
-                omega,
-                model,
-                settings,
-                n_groups=n_groups,
-                group_id=group_id,
-            )
-        )
+        shard_data.append((indices, values, omega))
+    shards = _fit_whittle_shards(
+        shard_data,
+        model,
+        settings,
+        n_groups,
+        desc="time shards",
+    )
 
     full = fit_full_whittle(data, model, settings) if include_full else None
     shard_draws = [item.draws for item in shards]

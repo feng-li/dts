@@ -27,6 +27,7 @@ from dts.regression import (
     regression_parameter_names,
     transform_regression_draws,
 )
+from dts.ray_backend import effective_num_cpus, resolve_shard_backend
 
 
 def parse_args() -> argparse.Namespace:
@@ -43,6 +44,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--basinhopping", action="store_true")
     parser.add_argument("--basinhopping-iter", type=int, default=25)
     parser.add_argument("--no-progress", action="store_true", help="disable progress bars")
+    parser.add_argument(
+        "--backend",
+        choices=["auto", "local", "ray"],
+        default="auto",
+        help="shard MCMC execution backend; auto uses Ray when --num-cpus is greater than 1",
+    )
+    parser.add_argument(
+        "--num-cpus",
+        type=int,
+        default=None,
+        help="CPU slots for local Ray shard execution; auto-detected when omitted",
+    )
+    parser.add_argument("--ray-num-cpus", dest="num_cpus", type=int, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--ray-address", default=None, help="Ray cluster address; omit for a local Ray runtime")
     return parser.parse_args()
 
 
@@ -80,6 +95,9 @@ def settings_from_args(args: argparse.Namespace) -> tuple[RegressionSettings, in
             basinhopping=args.basinhopping,
             basinhopping_iter=args.basinhopping_iter,
             progress=not args.no_progress,
+            backend=args.backend,
+            num_cpus=args.num_cpus,
+            ray_address=args.ray_address,
         ),
         groups,
         max_observations,
@@ -151,6 +169,11 @@ def main() -> None:
         "burn_in": settings.burn_in,
         "optimize": settings.optimize,
         "basinhopping": settings.basinhopping,
+        "backend": settings.backend,
+        "effective_backend": resolve_shard_backend(settings.backend, settings.num_cpus),
+        "num_cpus": settings.num_cpus,
+        "effective_num_cpus": effective_num_cpus(settings.num_cpus),
+        "ray_address": settings.ray_address,
         "acceptance_rates": [item.acceptance_rate for item in result.shards],
     }
     with (args.output_dir / "manifest.json").open("w") as handle:

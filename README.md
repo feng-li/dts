@@ -12,7 +12,7 @@ and `section5_applications/` for traceability.
 
 - Whittle likelihood inference for ARMA and ARTFIMA models.
 - Frequency-domain partitioning that preserves the global periodogram.
-- Local and Spark-based shard MCMC.
+- Local, Ray, and Spark-based shard MCMC.
 - Consensus and simple-average posterior aggregation.
 - AR(2) regression diagnostics for the DC-BATS comparison.
 - JAX-based gradients and Hessians for MAP estimation.
@@ -53,7 +53,7 @@ is kept for environment recreation.
 
 ## Quick Validation
 
-Run the fast local checks before starting manuscript-scale jobs:
+Run the fast checks before starting manuscript-scale jobs:
 
 ```sh
 python scripts/replicate_main_results.py \
@@ -66,8 +66,31 @@ python scripts/replicate_ar2_regression.py \
   --output-dir artifacts/quick_ar2
 ```
 
-These commands normally produce no terminal output on success. Inspect the
-CSV summaries and `manifest.json` files under the selected artifact folders.
+These commands show progress bars by default; add `--no-progress` for clean
+batch logs. Inspect the CSV summaries and `manifest.json` files under the
+selected artifact folders.
+
+The shard backend defaults to `auto`: it uses Ray when the effective CPU count is
+greater than 1, and local serial execution when it is 1. Omit `--num-cpus` to
+use the detected CPU count, set `--num-cpus 1` for local debugging, or set a
+larger value to cap the local Ray runtime:
+
+```sh
+python scripts/replicate_main_results.py \
+  --preset quick \
+  --experiments all \
+  --num-cpus 4 \
+  --output-dir artifacts/quick_main_ray
+
+python scripts/replicate_ar2_regression.py \
+  --preset quick \
+  --num-cpus 4 \
+  --output-dir artifacts/quick_ar2_ray
+```
+
+Omit `--ray-address` to let Ray start a local runtime, or pass a cluster address
+such as `--ray-address auto`. Use `--backend local` or `--backend ray` only when
+you need to override automatic selection.
 
 ## Paper Replication
 

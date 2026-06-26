@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 from typing import Optional
@@ -21,6 +21,7 @@ from dts.mcmc import f_ARTFIMA, make_positive_definite, reparam
 from dts.optimization import fit_map_and_proposal
 from dts.partition import frequency_partition_indices, time_partition_indices
 from dts.progress import progress_bar
+from dts.ray_backend import resolve_shard_backend, run_indexed_ray_tasks
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,9 @@ class RegressionSettings:
     basinhopping: bool = False
     basinhopping_iter: int = 25
     progress: bool = False
+    backend: str = "auto"
+    num_cpus: int | None = None
+    ray_address: str | None = None
 
 
 @dataclass
@@ -302,20 +306,19 @@ def regression_sampler(
     return draws[settings.burn_in :], log_p[settings.burn_in :], acceptance[settings.burn_in :]
 
 
-def fit_regression_whittle_shard(
-    y_hat,
-    x_hat,
-    indices: np.ndarray,
+def fit_regression_whittle_shard_prepared(
+    y_hat_shard,
+    x_hat_shard,
+    omega,
+    n_obs: int,
     spec: RegressionSpec,
     settings: RegressionSettings,
     n_groups: int = 1,
     group_id: int = 0,
 ) -> RegressionShardResult:
-    indices = onp.asarray(indices, dtype=int)
-    n_obs = len(y_hat)
-    omega = np.asarray(2.0 * onp.pi * indices / n_obs)
-    y_hat_shard = np.asarray(y_hat[indices])
-    x_hat_shard = np.asarray(x_hat[indices])
+    omega = np.asarray(omega)
+    y_hat_shard = np.asarray(y_hat_shard)
+    x_hat_shard = np.asarray(x_hat_shard)
     theta0 = initial_regression_params(spec, seed=settings.seed + group_id)
     sample_desc = "Regression MCMC full" if n_groups == 1 else f"Regression MCMC shard {group_id + 1}/{n_groups}"
 
@@ -338,6 +341,48 @@ def fit_regression_whittle_shard(
     return RegressionShardResult(draws, log_p, acceptance, fit.theta, fit.proposal_cov, group_id=group_id)
 
 
+def fit_regression_whittle_shard(
+    y_hat,
+    x_hat,
+    indices: np.ndarray,
+    spec: RegressionSpec,
+    settings: RegressionSettings,
+    n_groups: int = 1,
+    group_id: int = 0,
+) -> RegressionShardResult:
+    indices = onp.asarray(indices, dtype=int)
+    n_obs = len(y_hat)
+    omega = 2.0 * onp.pi * indices / n_obs
+    return fit_regression_whittle_shard_prepared(
+        y_hat[indices],
+        x_hat[indices],
+        omega,
+        n_obs,
+        spec,
+        settings,
+        n_groups=n_groups,
+        group_id=group_id,
+    )
+
+
+def _fit_regression_whittle_shard_payload(payload):
+    index, y_hat_shard, x_hat_shard, omega, n_obs, spec, settings, n_groups, group_id = payload
+    return index, fit_regression_whittle_shard_prepared(
+        y_hat_shard,
+        x_hat_shard,
+        omega,
+        n_obs,
+        spec,
+        settings,
+        n_groups=n_groups,
+        group_id=group_id,
+    )
+
+
+def _regression_worker_settings(settings: RegressionSettings) -> RegressionSettings:
+    return replace(settings, progress=False, backend="local")
+
+
 def fit_regression_frequency_divide_and_conquer(
     x: np.ndarray,
     y: np.ndarray,
@@ -350,16 +395,46 @@ def fit_regression_frequency_divide_and_conquer(
     n_freq = int(onp.floor((len(y) - 1) / 2))
     all_indices = onp.arange(n_freq)
     groups = frequency_partition_indices(n_freq, n_groups, method="systematic")
-    shards = []
-    for gid, indices in progress_bar(
-        enumerate(groups),
-        total=len(groups),
-        desc="regression frequency shards",
-        unit="shard",
-        leave=False,
-        disable=not settings.progress,
-    ):
-        shards.append(fit_regression_whittle_shard(y_hat, x_hat, indices, spec, settings, n_groups=n_groups, group_id=gid))
+    backend = resolve_shard_backend(settings.backend, settings.num_cpus)
+    if backend == "local":
+        shards = []
+        for gid, indices in progress_bar(
+            enumerate(groups),
+            total=len(groups),
+            desc="regression frequency shards",
+            unit="shard",
+            leave=False,
+            disable=not settings.progress,
+        ):
+            shards.append(fit_regression_whittle_shard(y_hat, x_hat, indices, spec, settings, n_groups=n_groups, group_id=gid))
+    elif backend == "ray":
+        worker_settings = _regression_worker_settings(settings)
+        payloads = []
+        for gid, indices in enumerate(groups):
+            omega = 2.0 * onp.pi * indices / len(y_hat)
+            payloads.append(
+                (
+                    gid,
+                    onp.asarray(y_hat[indices]),
+                    onp.asarray(x_hat[indices]),
+                    omega,
+                    len(y_hat),
+                    spec,
+                    worker_settings,
+                    n_groups,
+                    gid,
+                )
+            )
+        shards = run_indexed_ray_tasks(
+            _fit_regression_whittle_shard_payload,
+            payloads,
+            address=settings.ray_address,
+            num_cpus=settings.num_cpus,
+            progress=settings.progress,
+            desc="ray regression frequency shards",
+        )
+    else:
+        raise ValueError(f"unknown regression backend: {settings.backend!r}")
     full = None
     if include_full:
         full = fit_regression_whittle_shard(y_hat, x_hat, all_indices, spec, settings, n_groups=1, group_id=0)
