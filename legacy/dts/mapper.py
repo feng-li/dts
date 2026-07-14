@@ -61,15 +61,17 @@ def mapper(pdf, conf_model, conf_mcmc):
 
         # 2.9.3 run sampling, jackknife bias correction and restore all results as draws
         def create_omega_shard(N, group_id, G):
-            return 2*np.pi*np.arange(group_id, int(N/2), G)/N
+            n_freq = int(np.floor((N - 1) / 2))
+            return 2*np.pi*np.arange(group_id + 1, n_freq + 1, G)/N
 
         def create_p_gram_shard(x):  # Construct Periodogram
             id = int(np.floor((len(x)-1)/2))
-            return np.square(np.abs(x[0:(id)]))/(2 * np.pi * len(x))
+            return np.square(np.abs(x[1:(id + 1)]))/(2 * np.pi * len(x))
 
         I_pg_shard = create_p_gram_shard(fft(data_shard))
         # omega_shard = create_omega_shard()
-        omega_shard = 2*np.pi*np.arange(1, int(len(data_shard)/2)+1)/len(data_shard)
+        n_freq = int(np.floor((len(data_shard) - 1) / 2))
+        omega_shard = 2*np.pi*np.arange(1, n_freq + 1)/len(data_shard)
 
         # 2.5 posterior distribution function
         # 2.9.2 find own MAP(paramsStar), as start point
@@ -108,7 +110,7 @@ def mapper(pdf, conf_model, conf_mcmc):
 
     # 2.9.1 each worker gets its shard of data(periodgram)
     # G = 10   # Number of groups
-    # I = [item + np.arange(0, int(np.floor((n-1)/2)), G) for item in range(G)]
+    # I = [np.arange(item, int(np.floor((n-1)/2)), G) for item in range(G)]
     # S = [int(item*(n-1)/(G)) + np.arange(0, int((n-1)/(G))) for item in range(G)]
     # k = np.arange(1,int((n/G)/2)+1) # k is used to determine Fourier frequencies and sum of Whittle likelihood
 

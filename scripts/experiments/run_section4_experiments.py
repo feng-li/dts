@@ -428,10 +428,10 @@ if __name__ == "__main__":
     N_full = dfft_df.count()   # 这一步会跑一次，但之后复用 cache
     id_half = int(np.floor((N_full - 1) / 2))
     
-    # 2) Build periodogram exactly matching p_gram(fft(data))
+    # 2) Build periodogram at positive Fourier frequencies k = 1, ..., floor((N - 1) / 2).
     periodogram_df = (
         dfft_df
-        .filter((F.col("k") >= 0) & (F.col("k") < F.lit(id_half)))
+        .filter((F.col("k") >= 1) & (F.col("k") <= F.lit(id_half)))
     
         .withColumn(
             "abs2",
@@ -447,7 +447,7 @@ if __name__ == "__main__":
         )
         .withColumn(
             "shard_id",
-            F.pmod(F.col("k"), F.lit(G))   # systematic split
+            F.pmod(F.col("k") - F.lit(1), F.lit(G))   # systematic split
         )
         .select("shard_id", "I_pg", "omega")
     )

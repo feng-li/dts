@@ -67,9 +67,9 @@ prior_std_ginv_sigma2_param = 1.0
 # ============================================================
 
 def p_gram(x_fft):
-    """Periodogram from FFT output (matches your definition)."""
+    """Periodogram at positive Fourier frequencies."""
     id_ = int(np.floor((len(x_fft) - 1) / 2))
-    return np.square(np.abs(x_fft[0:id_])) / (2 * np.pi * len(x_fft))
+    return np.square(np.abs(x_fft[1 : id_ + 1])) / (2 * np.pi * len(x_fft))
 
 def reparam(params, MA=False):
     """
@@ -206,14 +206,15 @@ def run_one_replicate(data, G):
     Returns: phi_draws (1d array)
     """
     n = len(data)
+    n_freq = int(np.floor((n - 1) / 2))
 
     # shard index sets (match your formulas)
-    I = [item + np.arange(0, int(np.floor((n - 1) / 2)), G) for item in range(G)]
+    I = [np.arange(item, n_freq, G) for item in range(G)]
     S = [int(item * (n - 1) / G) + np.arange(0, int((n - 1) / G)) for item in range(G)]
 
     # periodogram & omegas
     I_pg_full = p_gram(fft(data))
-    omega_full = 2 * np.pi * np.arange(1, int(n / 2) + 1) / n
+    omega_full = 2 * np.pi * np.arange(1, n_freq + 1) / n
 
     # dimensions
     if TFI_term:
@@ -439,7 +440,6 @@ print("Std  W1     :", np.std(W1_vals))
 print("Mean W1_rel :", np.mean(W1_rel_vals))
 print("Std  W1_rel :", np.std(W1_rel_vals))
 print("===========================================\n")
-
 
 
 

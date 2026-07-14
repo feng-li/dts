@@ -6,14 +6,15 @@ Created on Mon May  5 15:02:48 2025
 @author: zixuanwang
 """
 
-import os
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
+from _paths import find_input
+
 # 1) Load your new DataFrame
-df = pd.read_pickle(os.path.join(os.getcwd(), "ARTFIMA.pkl"))
+df = pd.read_pickle(find_input("ARTFIMA.pkl"))
 print(df.head())
 
 # 2) Specify the three partitions, and choose distinct colors & line-styles

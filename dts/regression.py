@@ -19,7 +19,11 @@ import numpy as onp
 from dts.aggregation import consensus, simple_average
 from dts.mcmc import f_ARTFIMA, make_positive_definite, reparam
 from dts.optimization import fit_map_and_proposal
-from dts.partition import frequency_partition_indices, time_partition_indices
+from dts.partition import (
+    frequency_partition_indices,
+    positive_frequency_count,
+    time_partition_indices,
+)
 from dts.progress import progress_bar
 from dts.ray_backend import resolve_shard_backend, run_indexed_ray_tasks
 
@@ -350,6 +354,7 @@ def fit_regression_whittle_shard(
     n_groups: int = 1,
     group_id: int = 0,
 ) -> RegressionShardResult:
+    """Fit one regression Whittle shard using actual positive FFT indices."""
     indices = onp.asarray(indices, dtype=int)
     n_obs = len(y_hat)
     omega = 2.0 * onp.pi * indices / n_obs
@@ -392,9 +397,12 @@ def fit_regression_frequency_divide_and_conquer(
     include_full: bool = True,
 ) -> RegressionDistributedResult:
     x_hat, y_hat = regression_frequency_domain(x, y)
-    n_freq = int(onp.floor((len(y) - 1) / 2))
-    all_indices = onp.arange(n_freq)
-    groups = frequency_partition_indices(n_freq, n_groups, method="systematic")
+    n_freq = positive_frequency_count(len(y))
+    all_indices = onp.arange(1, n_freq + 1)
+    groups = [
+        all_indices[positions]
+        for positions in frequency_partition_indices(n_freq, n_groups, method="systematic")
+    ]
     backend = resolve_shard_backend(settings.backend, settings.num_cpus)
     if backend == "local":
         shards = []
@@ -406,7 +414,17 @@ def fit_regression_frequency_divide_and_conquer(
             leave=False,
             disable=not settings.progress,
         ):
-            shards.append(fit_regression_whittle_shard(y_hat, x_hat, indices, spec, settings, n_groups=n_groups, group_id=gid))
+            shards.append(
+                fit_regression_whittle_shard(
+                    y_hat,
+                    x_hat,
+                    indices,
+                    spec,
+                    settings,
+                    n_groups=n_groups,
+                    group_id=gid,
+                )
+            )
     elif backend == "ray":
         worker_settings = _regression_worker_settings(settings)
         payloads = []
@@ -437,7 +455,15 @@ def fit_regression_frequency_divide_and_conquer(
         raise ValueError(f"unknown regression backend: {settings.backend!r}")
     full = None
     if include_full:
-        full = fit_regression_whittle_shard(y_hat, x_hat, all_indices, spec, settings, n_groups=1, group_id=0)
+        full = fit_regression_whittle_shard(
+            y_hat,
+            x_hat,
+            all_indices,
+            spec,
+            settings,
+            n_groups=1,
+            group_id=0,
+        )
     shard_draws = [item.draws for item in shards]
     return RegressionDistributedResult(
         full=full,

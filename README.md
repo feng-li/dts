@@ -5,8 +5,8 @@ Frequency-domain divide-and-conquer MCMC for stationary time series.
 This repository contains the reproducible Python implementation for
 `docs/Manuscript_2026_Zi.tex`. The active package is `dts/`; paper and
 deployment entry points are in `scripts/`. Older source scripts migrated from
-the student project are kept in `legacy/`, `figures/`, `section4_experiments/`,
-and `section5_applications/` for traceability.
+the student project are kept in `legacy/`, `scripts/figures/`,
+`section4_experiments/`, and `section5_applications/` for traceability.
 
 ## What Is Implemented
 

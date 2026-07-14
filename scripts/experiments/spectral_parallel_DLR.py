@@ -78,7 +78,7 @@ def I_pg_func(y_hat, x_hat, params):
     beta = params[2]#np.squeeze(params[-Last_ARMA: num_exog - Last_ARMA])
     return np.square(np.abs(y_hat - np.dot(x_hat, beta))) / (2 * np.pi * len(y_hat))
 
-ind_full = np.arange(0, int(np.floor((len(y_sim)-1)/2)))
+ind_full = np.arange(1, n + 1)
 
 
 
@@ -259,7 +259,7 @@ def sampler(theta_init, ind, proposal_width, n_samples):
 
 
 G = 16  # Number of groups
-I = [item + np.arange(0, int(np.floor((T-1)/2)), G) for item in range(G)]
+I = [np.arange(item + 1, n + 1, G) for item in range(G)]
 
 
 
@@ -375,7 +375,6 @@ sns.kdeplot(phi2_G16)
 
 sns.kdeplot(sigma2_G1)
 sns.kdeplot(sigma2_G16)
-
 
 
 
