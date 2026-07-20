@@ -36,6 +36,21 @@ class MapEstimate:
     proposal_cov: np.ndarray
 
 
+class _BoundedRandomStep:
+    """Random basinhopping displacement constrained to optimizer bounds."""
+
+    def __init__(self, lower, upper, stepsize: float, seed: int):
+        self.lower = np.asarray(lower, dtype=float)
+        self.upper = np.asarray(upper, dtype=float)
+        self.stepsize = float(stepsize)
+        self.rng = np.random.default_rng(seed)
+
+    def __call__(self, theta):
+        theta = np.asarray(theta, dtype=float)
+        displacement = self.rng.uniform(-self.stepsize, self.stepsize, size=theta.shape)
+        return np.clip(theta + displacement, self.lower, self.upper)
+
+
 def fit_map_and_proposal(
     objective,
     theta0: np.ndarray,
@@ -47,6 +62,15 @@ def fit_map_and_proposal(
 ) -> MapEstimate:
     """Fit a MAP estimate and derive a positive-definite proposal covariance."""
     theta0 = np.asarray(theta0, dtype=float)
+    lower = np.asarray(lower, dtype=float)
+    upper = np.asarray(upper, dtype=float)
+    if theta0.shape != lower.shape or theta0.shape != upper.shape:
+        raise ValueError("theta0, lower, and upper must have identical shapes")
+    if np.any(lower > upper):
+        raise ValueError("lower bounds must not exceed upper bounds")
+    if np.any(theta0 < lower) or np.any(theta0 > upper):
+        raise ValueError("theta0 must satisfy the optimizer bounds")
+
     n_params = len(theta0)
     theta_map = theta0
     proposal_cov = np.eye(n_params) * 0.02
@@ -105,6 +129,12 @@ def fit_map_and_proposal(
                 x0=theta0,
                 niter=settings.basinhopping_iter,
                 stepsize=1.0,
+                take_step=_BoundedRandomStep(
+                    lower,
+                    upper,
+                    stepsize=1.0,
+                    seed=settings.seed + group_id,
+                ),
                 minimizer_kwargs=minimizer_kwargs,
                 seed=settings.seed + group_id,
                 callback=lambda x, f, accept: bar.update(1),

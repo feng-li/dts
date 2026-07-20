@@ -114,7 +114,7 @@ def whittle_log_posterior_jit(
         last_arma,
         TFI_term,
         n_groups=n_groups,
-        check_bounds=False,
+        check_bounds=True,
     )
     return np.sum(log_likelihood) + prior
 
@@ -146,9 +146,6 @@ def log_prior(
     check_bounds: bool = True,
 ):
     """Fractionated prior used by subposteriors."""
-    if check_bounds and not _valid_process_params(params, Last_ARMA):
-        return -np.inf
-
     n_process = len(params) - Last_ARMA
     prior_process = -n_process * np.log(2.0)
 
@@ -161,7 +158,11 @@ def log_prior(
     else:
         prior_tail = sps_jax.norm.logpdf(params[-1], loc=mu, scale=sd)
 
-    return (prior_process + prior_tail) / n_groups
+    prior = (prior_process + prior_tail) / n_groups
+    if check_bounds:
+        valid = np.all(np.abs(params[:-Last_ARMA]) < 1.0)
+        prior = np.where(valid, prior, -np.inf)
+    return prior
 
 
 def make_positive_definite(matrix, min_eigenvalue: float = 1e-8):
@@ -175,8 +176,9 @@ def make_positive_definite(matrix, min_eigenvalue: float = 1e-8):
 
 def parameter_bounds(n_params: int, tfi_term: bool) -> Tuple[onp.ndarray, onp.ndarray]:
     """Bounds for partial autocorrelations and transformed scale parameters."""
-    lower = -onp.ones(n_params)
-    upper = onp.ones(n_params)
+    process_limit = 1.0 - 1e-8
+    lower = onp.full(n_params, -process_limit)
+    upper = onp.full(n_params, process_limit)
     if tfi_term:
         lower[-3:] = -30.0
         upper[-3:] = 30.0
@@ -232,7 +234,7 @@ def sampler(
                 last_arma,
                 TFI_term,
                 n_groups=n_groups,
-                check_bounds=False,
+                check_bounds=True,
             )
             return float(onp.sum(log_likelihood) + prior)
         return float(

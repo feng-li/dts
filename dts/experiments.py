@@ -94,7 +94,7 @@ def whittle_log_posterior(params, model: ModelSpec, periodogram, omega, n_groups
         model.last_arma,
         model.tfi_term,
         n_groups=n_groups,
-        check_bounds=False,
+        check_bounds=True,
     ) + jnp.sum(whittle_log_likelihood(params, model.q, model.p, periodogram, model.tfi_term, omega))
 
 
