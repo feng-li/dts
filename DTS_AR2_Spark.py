@@ -146,6 +146,8 @@ def load_input_dataframe(spark, args: argparse.Namespace):
             x = x.reshape(-1, 1)
         if x.ndim != 2 or x.shape[0] != len(y):
             raise ValueError(f"incompatible x and y shapes: {x.shape} and {y.shape}")
+        if not onp.all(onp.isfinite(x)) or not onp.all(onp.isfinite(y)):
+            raise ValueError("NPY input contains non-finite x or y values")
 
         x_columns = [f"x{index + 1}" for index in range(x.shape[1])]
         y_column = "y"
@@ -170,13 +172,55 @@ def load_input_dataframe(spark, args: argparse.Namespace):
     from pyspark.sql import functions as F
 
     selected = raw.select(
-        F.col(args.time_column),
+        F.col(args.time_column).cast("double").alias(args.time_column),
         *[
             F.col(column).cast("double").alias(column)
             for column in x_columns + [args.y_column]
         ],
-    ).dropna()
+    )
+    invalid = None
+    for column in required:
+        condition = (
+            F.col(column).isNull()
+            | F.isnan(F.col(column))
+            | (F.abs(F.col(column)) == F.lit(float("inf")))
+        )
+        invalid = condition if invalid is None else invalid | condition
+    if selected.filter(invalid).limit(1).count():
+        raise ValueError("CSV input contains missing, nonnumeric, or non-finite values")
     return selected, x_columns, args.y_column, args.time_column
+
+
+def validate_time_index(dataframe, time_column: str) -> int:
+    """Require a finite, unique, regularly spaced numerical time index."""
+
+    from pyspark.sql import functions as F
+
+    stats = dataframe.agg(
+        F.count(F.lit(1)).alias("n"),
+        F.countDistinct(F.col(time_column)).alias("n_distinct"),
+        F.min(F.col(time_column)).alias("minimum"),
+        F.max(F.col(time_column)).alias("maximum"),
+    ).first()
+    n_obs = int(stats["n"])
+    if n_obs == 0:
+        raise ValueError("input contains no observations")
+    if int(stats["n_distinct"]) != n_obs:
+        raise ValueError(f"time column {time_column!r} must contain unique values")
+    if n_obs == 1:
+        return n_obs
+
+    step = (float(stats["maximum"]) - float(stats["minimum"])) / (n_obs - 1)
+    if not onp.isfinite(step) or step <= 0:
+        raise ValueError(f"time column {time_column!r} is not strictly increasing")
+
+    grid_position = (F.col(time_column) - F.lit(float(stats["minimum"]))) / F.lit(step)
+    max_grid_error = dataframe.agg(
+        F.max(F.abs(grid_position - F.round(grid_position))).alias("error")
+    ).first()["error"]
+    if float(max_grid_error) > 1e-7:
+        raise ValueError(f"time column {time_column!r} must be regularly spaced")
+    return n_obs
 
 
 def build_indexed_rdd(
@@ -191,6 +235,8 @@ def build_indexed_rdd(
     if partitions < 1 or partitions & (partitions - 1):
         raise ValueError(f"--fft-partitions must be a power of two, got {partitions}")
 
+    expected_count = validate_time_index(dataframe, time_column)
+
     indexed = (
         dataframe.orderBy(time_column).select(*columns)
         .rdd.map(lambda row: tuple(float(row[column]) for column in columns))
@@ -199,6 +245,8 @@ def build_indexed_rdd(
         .cache()
     )
     n_original = indexed.count()
+    if n_original != expected_count:
+        raise RuntimeError("time-index validation and indexed row counts differ")
     if n_original < partitions:
         raise ValueError(
             f"number of observations {n_original} is smaller than P={partitions}"
