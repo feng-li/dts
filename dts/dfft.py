@@ -66,7 +66,6 @@ def spark_fft_indexed_rdd(indexed_rdd, series_length: int, partitions: int):
         indexed_rdd.map(lambda item: (int(item[0]) % partitions, (int(item[0]), item[1])))
         .groupByKey(numPartitions=partitions)
         .flatMap(lambda kv: _compute_subfft(kv, partitions, block_size))
-        .cache()
     )
     twiddled = subffts.map(
         lambda item: (
@@ -77,7 +76,7 @@ def spark_fft_indexed_rdd(indexed_rdd, series_length: int, partitions: int):
         )
     )
     grouped = twiddled.map(lambda item: (item[0] % block_size, (item[1], item[2]))).groupByKey(
-        numPartitions=block_size
+        numPartitions=partitions
     )
 
     def second_stage(grouped_pair):
