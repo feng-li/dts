@@ -1,118 +1,62 @@
 # dts
 
-Frequency-domain divide-and-conquer MCMC for stationary time series.
+`dts` provides reproducible implementations of frequency-domain divide-and-conquer Bayesian inference for long stationary time series. It combines Whittle-likelihood inference, distributed FFT, and shard-wise MCMC with subposterior aggregation.
 
-This repository contains the reproducible Python implementation for
-`docs/Manuscript_2026_Zi.tex`. The active package is `dts/`; paper and
-deployment entry points are in `scripts/`. Older source scripts migrated from
-the student project are kept in `legacy/`, `scripts/figures/`,
-`section4_experiments/`, and `section5_applications/` for traceability.
+## Purpose
 
-## What Is Implemented
+- Enable scalable Bayesian inference for long univariate and multivariate time-series datasets.
+- Evaluate spectral partitioning methods and provide practical experiments for ARMA, ARTFIMA, and dynamic AR(2) regression.
+- Support both local and distributed execution (Ray/Spark) for replication and comparison of manuscript results.
 
-- Whittle likelihood inference for ARMA and ARTFIMA models.
-- Frequency-domain partitioning that preserves the global periodogram.
-- Local, Ray, and Spark-based shard MCMC.
-- Consensus and simple-average posterior aggregation.
-- AR(2) regression diagnostics for the DC-BATS comparison.
-- JAX-based gradients and Hessians for MAP estimation.
+## Main Features
 
-The code defaults JAX to CPU and enables 64-bit arithmetic through
-`dts._jax.configure_jax()`. Regular NumPy is still used for random sampling,
-mutable arrays, file I/O, and SciPy/statsmodels interop.
+- Whittle likelihood and frequency-domain likelihood approximation.
+- Frequency partitioning into independent Whittle subposteriors.
+- JAX-based MAP and Hessian-based proposal construction.
+- Local, Ray, and Spark execution backends.
+- Spark-based distributed FFT (exact, block-based implementation) to handle very long series.
+- Posterior aggregation methods (simple averaging, consensus Monte Carlo, and additional methods).
+- Scripts for experiment replication, Spark workflows, and artifact generation.
 
 ## Repository Layout
 
 - `dts/`: reusable Python package.
-- `scripts/`: runnable replication, Spark, and artifact utilities.
-- `data/`: bundled manuscript inputs and benchmark data.
-- `docs/Manuscript_2026_Zi.tex`: current paper source.
-- `docs/REPLICATION.md`: detailed replication and development notes.
-- `artifacts/`: generated outputs. This directory is ignored by git.
-- `legacy/`: old migrated helpers retained only for reference.
+- `scripts/`: entry points for replication and Spark workflows.
+- `data/`: input data used by examples and experiments.
+- `docs/`: manuscript sources and supporting replication notes.
+- `results/`: generated outputs from benchmark runs.
+- `legacy/`: archived earlier scripts for provenance.
+- `requirements.txt` / `pyproject.toml`: environment specifications.
 
-Within `dts/`, `optimization.py` owns the shared JAX MAP/proposal-covariance
-routine, and `runtime.py` owns command-line warning setup.
+## Environment
 
-## Installation
+- Python: >= 3.9
+- Core dependencies: `numpy`, `scipy`, `pandas`, `jax`, `autograd`, `ray`, `statsmodels`, `tqdm`, `matplotlib`.
+- Optional dependency for distributed FFT/MCMC: `pyspark` (Spark backend).
+- The codebase is designed for Unix-like environments; Spark workflows require a working Spark installation and Java runtime for your Spark distribution.
 
-Use the existing project environment when available:
+Install the package in editable mode:
 
 ```sh
 python -m pip install -e .
 ```
 
-For Spark runs, install the optional dependency:
+Add optional Spark support:
 
 ```sh
 python -m pip install -e ".[spark]"
 ```
 
-The package dependencies are declared in `pyproject.toml`. `requirements.txt`
-is kept for environment recreation.
+## Quick Start
 
-## Quick Validation
-
-Run the fast checks before starting manuscript-scale jobs:
+Run a small sanity check:
 
 ```sh
-python scripts/replicate_main_results.py \
-  --preset quick \
-  --experiments all \
-  --output-dir artifacts/quick_main
-
-python scripts/replicate_ar2_regression.py \
-  --preset quick \
-  --output-dir artifacts/quick_ar2
+python scripts/replicate_main_results.py --preset quick
+python scripts/replicate_ar2_regression.py --preset quick
 ```
 
-These commands show progress bars by default; add `--no-progress` for clean
-batch logs. Inspect the CSV summaries and `manifest.json` files under the
-selected artifact folders.
-
-The shard backend defaults to `auto`: it uses Ray when the effective CPU count is
-greater than 1, and local serial execution when it is 1. Omit `--num-cpus` to
-use the detected CPU count, set `--num-cpus 1` for local debugging, or set a
-larger value to cap the local Ray runtime:
-
-```sh
-python scripts/replicate_main_results.py \
-  --preset quick \
-  --experiments all \
-  --num-cpus 4 \
-  --output-dir artifacts/quick_main_ray
-
-python scripts/replicate_ar2_regression.py \
-  --preset quick \
-  --num-cpus 4 \
-  --output-dir artifacts/quick_ar2_ray
-```
-
-Omit `--ray-address` to let Ray start a local runtime, or pass a cluster address
-such as `--ray-address auto`. Use `--backend local` or `--backend ray` only when
-you need to override automatic selection.
-
-## Paper Replication
-
-Full manuscript-scale runs use 15,000 MCMC iterations with 5,000 burn-in and
-can take a long time:
-
-```sh
-python scripts/replicate_main_results.py \
-  --preset paper \
-  --experiments all
-
-python scripts/replicate_ar2_regression.py \
-  --preset paper
-```
-
-The main script writes posterior summaries, figures, and a run manifest to
-`artifacts/replication/`. The AR(2) script writes its diagnostic table to
-`artifacts/ar2_regression/`.
-
-## Spark Workflow
-
-Run the distributed frequency-domain MCMC entry point with `spark-submit`:
+Run a local distributed Spark experiment:
 
 ```sh
 spark-submit scripts/run_spark_mcmc.py \
@@ -120,19 +64,10 @@ spark-submit scripts/run_spark_mcmc.py \
   --column y \
   --groups 10 \
   --fft-partitions 16 \
-  --q 1 \
   --p 1 \
+  --q 1 \
   --tfi-term \
   --output artifacts/spark_mcmc
 ```
 
-Check the Spark FFT implementation independently:
-
-```sh
-python scripts/check_dfft.py \
-  --n 160 \
-  --partitions 8
-```
-
-Use `scripts/stack_shard_draws.py` for legacy shard files named
-`shardXX_draws.npy` and `shardXX_logp.npy`.
+Use `docs/REPLICATION.md` for full manuscript settings, including longer runs and output locations.
