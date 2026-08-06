@@ -27,6 +27,15 @@ def seconds_text(value: float) -> str:
     return f"{value:.3f}"
 
 
+def input_size_text(exponent: int) -> str:
+    size_bytes = 2**exponent * 8
+    if size_bytes >= 1024**3:
+        return f"{size_bytes // 1024**3} GB"
+    if size_bytes >= 1024**2:
+        return f"{size_bytes // 1024**2} MB"
+    return f"{size_bytes // 1024} KB"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--numpy-summary", type=Path, action="append", required=True)
@@ -92,7 +101,7 @@ def main() -> None:
     tex_lines = [
         r"\begin{table}[t]",
         r"\centering",
-        r"\caption{Wall-clock time for a single-process NumPy FFT limited to 8 GiB and the block-record Spark FFT with 128 partitions on 64 one-core, 8 GiB workers. Entries are medians of three runs after one warm-up.}",
+        r"\caption{Wall-clock time for a single-process NumPy FFT limited to 8 GiB and the block-record Spark FFT with 256 partitions on 64 one-core, 8 GiB workers. Entries are medians of three runs after one warm-up.}",
         r"\label{tab:dfft-memory-8gb}",
         r"\begin{tabular}{rrrr}",
         r"\toprule",
@@ -129,29 +138,39 @@ def main() -> None:
 
     plt.rcParams.update(
         {
-            "font.family": "DejaVu Serif",
-            "axes.titleweight": "bold",
-            "axes.edgecolor": "#263238",
-            "axes.labelcolor": "#263238",
-            "xtick.color": "#263238",
-            "ytick.color": "#263238",
+            "font.family": "serif",
+            "font.serif": ["Times New Roman", "Times", "DejaVu Serif"],
+            "mathtext.fontset": "stix",
+            "font.size": 13,
+            "text.color": "black",
+            "axes.labelsize": 15,
+            "axes.labelcolor": "black",
+            "axes.edgecolor": "black",
+            "axes.linewidth": 0.8,
+            "xtick.labelsize": 12,
+            "ytick.labelsize": 13,
+            "xtick.color": "black",
+            "ytick.color": "black",
+            "legend.fontsize": 12,
+            "legend.labelcolor": "black",
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
         }
     )
-    figure, axis = plt.subplots(figsize=(9.2, 5.8), facecolor="#f4f0e6")
-    axis.set_facecolor("#fbf9f3")
+    figure, axis = plt.subplots(figsize=(9.2, 5.8))
     axis.plot(
         exponents,
         spark_medians,
-        color="#0b5d6b",
+        color="darkblue",
         marker="o",
         linewidth=2.4,
         markersize=5.5,
-        label="Spark block FFT, P=128",
+        label=r"Spark block FFT, $P=256$",
     )
     axis.plot(
         numpy_exponents,
         numpy_medians,
-        color="#c7462d",
+        color="#D62728",
         marker="s",
         linewidth=2.2,
         markersize=5.0,
@@ -162,17 +181,9 @@ def main() -> None:
         axis.axvspan(
             first_oom - 0.45,
             max(exponents) + 0.45,
-            color="#c7462d",
-            alpha=0.10,
+            color="#D62728",
+            alpha=0.08,
             linewidth=0,
-        )
-        axis.text(
-            first_oom + 0.1,
-            max(spark_medians) * 0.55,
-            "NumPy exceeds\n8 GiB",
-            color="#8f2f20",
-            fontsize=10,
-            fontweight="bold",
         )
 
     axis.set_yscale("log")
@@ -180,10 +191,21 @@ def main() -> None:
     axis.set_xticks(exponents)
     axis.set_xticklabels([rf"$2^{{{value}}}$" for value in exponents], rotation=45)
     axis.set_xlabel("Series length T")
+    size_exponents = [
+        value for value in exponents if value % 2 == 0 or value >= max(exponents) - 2
+    ]
+    size_axis = axis.secondary_xaxis("top")
+    size_axis.set_xticks(size_exponents)
+    size_axis.set_xticklabels([input_size_text(value) for value in size_exponents])
+    size_axis.set_xlabel("Raw input size (float64)")
     axis.set_ylabel("Median wall-clock time (seconds, log scale)")
     axis.set_title("Distributed FFT capacity beyond one 8 GiB worker", loc="left")
-    axis.grid(which="both", axis="y", color="#9aa4a6", alpha=0.28, linewidth=0.7)
-    axis.legend(frameon=False, loc="upper left")
+    axis.grid(False)
+    axis.spines["top"].set_visible(False)
+    axis.spines["right"].set_visible(False)
+    axis.tick_params(axis="both", direction="out", length=4, width=0.8)
+    size_axis.tick_params(axis="x", direction="out", length=4, width=0.8)
+    axis.legend(frameon=False, loc="lower right")
     figure.tight_layout()
     figure.savefig(pdf_path, bbox_inches="tight")
     figure.savefig(png_path, dpi=220, bbox_inches="tight")
