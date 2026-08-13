@@ -30,10 +30,10 @@ def seconds_text(value: float) -> str:
 def input_size_text(exponent: int) -> str:
     size_bytes = 2**exponent * 8
     if size_bytes >= 1024**3:
-        return f"{size_bytes // 1024**3} GB"
+        return f"{size_bytes // 1024**3} GiB"
     if size_bytes >= 1024**2:
-        return f"{size_bytes // 1024**2} MB"
-    return f"{size_bytes // 1024} KB"
+        return f"{size_bytes // 1024**2} MiB"
+    return f"{size_bytes // 1024} KiB"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -123,17 +123,22 @@ def main() -> None:
     tex_path.write_text("\n".join(tex_lines) + "\n", encoding="ascii")
 
     exponents = [int(row["log2_T"]) for row in table_rows]
+    series_lengths = [int(row["series_length"]) for row in table_rows]
     spark_medians = [float(row["spark_median_seconds"]) for row in table_rows]
-    numpy_exponents = [
-        int(row["log2_T"]) for row in table_rows if row["numpy_status"] == "ok"
+    numpy_lengths = [
+        int(row["series_length"])
+        for row in table_rows
+        if row["numpy_status"] == "ok"
     ]
     numpy_medians = [
         float(row["numpy_median_seconds"])
         for row in table_rows
         if row["numpy_status"] == "ok"
     ]
-    oom_exponents = [
-        int(row["log2_T"]) for row in table_rows if row["numpy_status"] != "ok"
+    oom_lengths = [
+        int(row["series_length"])
+        for row in table_rows
+        if row["numpy_status"] != "ok"
     ]
 
     plt.rcParams.update(
@@ -159,7 +164,7 @@ def main() -> None:
     )
     figure, axis = plt.subplots(figsize=(9.2, 5.8))
     axis.plot(
-        exponents,
+        series_lengths,
         spark_medians,
         color="darkblue",
         marker="o",
@@ -168,7 +173,7 @@ def main() -> None:
         label=r"Spark block FFT, $P=256$",
     )
     axis.plot(
-        numpy_exponents,
+        numpy_lengths,
         numpy_medians,
         color="#D62728",
         marker="s",
@@ -176,36 +181,55 @@ def main() -> None:
         markersize=5.0,
         label="NumPy FFT, 8 GiB limit",
     )
-    if oom_exponents:
-        first_oom = min(oom_exponents)
+    if oom_lengths:
+        first_oom = min(oom_lengths)
         axis.axvspan(
-            first_oom - 0.45,
-            max(exponents) + 0.45,
+            first_oom / math.sqrt(2.0),
+            max(series_lengths) * math.sqrt(2.0),
             color="#D62728",
             alpha=0.08,
             linewidth=0,
         )
 
     axis.set_yscale("log")
-    axis.set_xlim(min(exponents) - 0.5, max(exponents) + 0.5)
-    axis.set_xticks(exponents)
-    axis.set_xticklabels([rf"$2^{{{value}}}$" for value in exponents], rotation=45)
-    axis.set_xlabel("Series length T")
+    axis.set_xscale("log", base=10)
+    axis.set_xlim(
+        min(series_lengths) / math.sqrt(2.0),
+        max(series_lengths) * math.sqrt(2.0),
+    )
+    decade_exponents = range(
+        math.floor(math.log10(min(series_lengths))),
+        math.floor(math.log10(max(series_lengths))) + 1,
+    )
+    decade_exponents = list(decade_exponents)
+    axis.set_xticks(
+        [10**value for value in decade_exponents] + [max(series_lengths)]
+    )
+    axis.set_xticklabels(
+        [rf"$10^{{{value}}}$" for value in decade_exponents]
+        + [r"$2.68\times10^8$"]
+    )
+    axis.set_xlabel(r"$T$")
     size_exponents = [
         value for value in exponents if value % 2 == 0 or value >= max(exponents) - 2
     ]
     size_axis = axis.secondary_xaxis("top")
-    size_axis.set_xticks(size_exponents)
+    size_axis.set_xticks([2**value for value in size_exponents])
     size_axis.set_xticklabels([input_size_text(value) for value in size_exponents])
-    size_axis.set_xlabel("Raw input size (float64)")
-    axis.set_ylabel("Median wall-clock time (seconds, log scale)")
-    axis.set_title("Distributed FFT capacity beyond one 8 GiB worker", loc="left")
+    axis.set_ylabel("Wall-clock time (seconds, log scale)")
     axis.grid(False)
     axis.spines["top"].set_visible(False)
     axis.spines["right"].set_visible(False)
     axis.tick_params(axis="both", direction="out", length=4, width=0.8)
-    size_axis.tick_params(axis="x", direction="out", length=4, width=0.8)
-    axis.legend(frameon=False, loc="lower right")
+    size_axis.tick_params(
+        axis="x", direction="out", length=4, width=0.8, labelsize=8
+    )
+    axis.legend(
+        frameon=False,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.02),
+        ncol=2,
+    )
     figure.tight_layout()
     figure.savefig(pdf_path, bbox_inches="tight")
     figure.savefig(png_path, dpi=220, bbox_inches="tight")
