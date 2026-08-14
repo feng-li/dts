@@ -49,6 +49,15 @@ python -m pip install -e ".[spark]"
 
 ## Quick Start
 
+Define model orders explicitly using conventional ARMA terminology:
+
+```python
+from dts import ModelSpec
+
+# ARMA(1, 2): one autoregressive term and two moving-average terms.
+model = ModelSpec(ar_order=1, ma_order=2)
+```
+
 Run a small sanity check:
 
 ```sh
@@ -64,8 +73,8 @@ spark-submit scripts/run_spark_mcmc.py \
   --column y \
   --groups 10 \
   --fft-partitions 16 \
-  --p 1 \
-  --q 1 \
+  --ar-order 1 \
+  --ma-order 1 \
   --tfi-term \
   --output artifacts/spark_mcmc
 ```

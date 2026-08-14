@@ -32,28 +32,31 @@ from dts.ray_backend import resolve_shard_backend, run_indexed_ray_tasks
 class RegressionSpec:
     """Regression model with ARMA/ARTFIMA residuals.
 
+    ``ar_order`` is the autoregressive error order and ``ma_order`` is the
+    moving-average error order.
+
     Parameter order is ``[ar_partial..., ma_partial..., beta..., tail...]``.
     The tail is ``[log_sigma2]`` for ARMA errors and
     ``[log_lambda, log_sigma2, d]`` for ARTFIMA errors.
     """
 
-    q: int = 2
-    p: int = 0
+    ar_order: int = 2
+    ma_order: int = 0
     n_exog: int = 1
     tfi_term: bool = False
 
     @property
     def n_params(self) -> int:
-        return self.q + self.p + self.n_exog + (3 if self.tfi_term else 1)
+        return self.ar_order + self.ma_order + self.n_exog + (3 if self.tfi_term else 1)
 
     @property
     def beta_slice(self) -> slice:
-        start = self.q + self.p
+        start = self.ar_order + self.ma_order
         return slice(start, start + self.n_exog)
 
     @property
     def process_slice(self) -> slice:
-        return slice(0, self.q + self.p)
+        return slice(0, self.ar_order + self.ma_order)
 
 
 @dataclass(frozen=True)
@@ -137,7 +140,9 @@ def simulate_ar2_regression(
 
 
 def regression_parameter_names(spec: RegressionSpec, transformed: bool = True) -> list[str]:
-    names = [f"phi{i + 1}" for i in range(spec.q)] + [f"theta{i + 1}" for i in range(spec.p)]
+    names = [f"phi{i + 1}" for i in range(spec.ar_order)] + [
+        f"theta{i + 1}" for i in range(spec.ma_order)
+    ]
     names.extend([f"beta{i + 1}" if spec.n_exog > 1 else "beta" for i in range(spec.n_exog)])
     if spec.tfi_term:
         names.extend(["lambda" if transformed else "log_lambda", "sigma2" if transformed else "log_sigma2", "d"])
@@ -149,11 +154,13 @@ def regression_parameter_names(spec: RegressionSpec, transformed: bool = True) -
 def transform_regression_draws(draws: np.ndarray, spec: RegressionSpec) -> np.ndarray:
     arr = onp.asarray(draws, dtype=float)
     out = arr.copy()
-    if spec.q:
-        out[:, : spec.q] = onp.vstack([reparam(row[: spec.q], MA=False) for row in arr])
-    if spec.p:
-        start = spec.q
-        end = spec.q + spec.p
+    if spec.ar_order:
+        out[:, : spec.ar_order] = onp.vstack(
+            [reparam(row[: spec.ar_order], MA=False) for row in arr]
+        )
+    if spec.ma_order:
+        start = spec.ar_order
+        end = spec.ar_order + spec.ma_order
         out[:, start:end] = onp.vstack([reparam(row[start:end], MA=True) for row in arr])
     if spec.tfi_term:
         out[:, -3] = onp.exp(arr[:, -3])
@@ -229,8 +236,19 @@ def regression_whittle_log_likelihood(params, y_hat, x_hat, spec: RegressionSpec
         lambda_ = 0.0
         var = np.exp(params[-1])
 
-    phi = reparam(params[: spec.q], MA=False) if spec.q else np.array([])
-    theta = reparam(params[spec.q : spec.q + spec.p], MA=True) if spec.p else np.array([])
+    phi = (
+        reparam(params[: spec.ar_order], MA=False)
+        if spec.ar_order
+        else np.array([])
+    )
+    theta = (
+        reparam(
+            params[spec.ar_order : spec.ar_order + spec.ma_order],
+            MA=True,
+        )
+        if spec.ma_order
+        else np.array([])
+    )
     density = f_ARTFIMA(omega, phi, theta, var, d, lambda_)
     periodogram = residual_periodogram(y_eval, x_eval, beta, n_obs=n_obs)
     return -(np.log(density) + periodogram / density)

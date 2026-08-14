@@ -1,5 +1,9 @@
 # Changes
 
+- Replaced ambiguous `q`/`p` model-order names in the public API with
+  `ar_order`/`ma_order`, including `ModelSpec`, `RegressionSpec`, low-level
+  MCMC helpers, aggregation helpers, and Spark CLI options.
+
 ## Jul 14, 2026: Indexing corrections and script cleanup
 
 - Aligned the implementation with the revised manuscript indexing: Whittle

@@ -24,8 +24,8 @@ def mapper(pdf: pd.DataFrame, conf_model: Dict[str, Any], conf_mcmc: Dict[str, i
 
     group_id = int(pdf["shard_id"].iat[0])
     model = ModelSpec(
-        q=int(conf_model["q"]),
-        p=int(conf_model["p"]),
+        ar_order=int(conf_model["ar_order"]),
+        ma_order=int(conf_model["ma_order"]),
         tfi_term=bool(conf_model.get("TFI_term", False)),
         exact=False,
     )

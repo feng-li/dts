@@ -52,8 +52,8 @@ class PosteriorConstraintTests(unittest.TestCase):
 
     def test_sampler_retains_only_supported_process_parameters(self):
         draws, _, _ = sampler(
-            q=1,
-            p=0,
+            ar_order=1,
+            ma_order=0,
             data=None,
             I_pg=np.asarray(self.periodogram),
             TFI_term=False,

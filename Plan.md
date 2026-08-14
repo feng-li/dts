@@ -41,7 +41,7 @@ Reorganize the current repository around `docs/Manuscript_2026_Zi.tex` so the ma
 - Experiment 3: `scripts/replicate_main_results.py --experiments partition`.
 - Experiment 4: `scripts/replicate_main_results.py --experiments time-frequency`.
 - AR(2) DC-BATS comparison diagnostics: `scripts/replicate_ar2_regression.py --preset paper`.
-- Bromma/Stockholm application: `spark-submit scripts/run_spark_mcmc.py --input data/Bromma_AR2_TFI_MA2.csv --column y --groups 10 --fft-partitions 16 --q 2 --p 2 --tfi-term --samples 15000 --burn-in 5000 --basinhopping --basinhopping-iter 100`.
+- Bromma/Stockholm application: `spark-submit scripts/run_spark_mcmc.py --input data/Bromma_AR2_TFI_MA2.csv --column y --groups 10 --fft-partitions 16 --ar-order 2 --ma-order 2 --tfi-term --samples 15000 --burn-in 5000 --basinhopping --basinhopping-iter 100`.
 - All local experiments: `scripts/replicate_main_results.py --preset paper --experiments all`.
 - Spark frequency-domain run: `scripts/run_spark_mcmc.py`.
 - Stacking saved shard draws: `scripts/stack_shard_draws.py`.

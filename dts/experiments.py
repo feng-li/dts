@@ -95,7 +95,16 @@ def whittle_log_posterior(params, model: ModelSpec, periodogram, omega, n_groups
         model.tfi_term,
         n_groups=n_groups,
         check_bounds=True,
-    ) + jnp.sum(whittle_log_likelihood(params, model.q, model.p, periodogram, model.tfi_term, omega))
+    ) + jnp.sum(
+        whittle_log_likelihood(
+            params,
+            model.ar_order,
+            model.ma_order,
+            periodogram,
+            model.tfi_term,
+            omega,
+        )
+    )
 
 
 def fit_whittle_shard(
@@ -120,8 +129,8 @@ def fit_whittle_shard(
     fit = fit_map_and_proposal(objective, theta0, lower, upper, settings, group_id=group_id)
 
     draws, log_p, acceptance = sampler(
-        model.q,
-        model.p,
+        model.ar_order,
+        model.ma_order,
         data=None,
         I_pg=periodogram,
         TFI_term=model.tfi_term,

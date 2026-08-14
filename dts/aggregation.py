@@ -43,16 +43,23 @@ def consensus(draws: Iterable[np.ndarray], ridge: float = 1e-8) -> np.ndarray:
     return weighted_sum @ precision_inv.T
 
 
-def transform_partial_draws(draws: np.ndarray, q: int, p: int, tfi_term: bool) -> np.ndarray:
+def transform_partial_draws(
+    draws: np.ndarray,
+    ar_order: int,
+    ma_order: int,
+    tfi_term: bool,
+) -> np.ndarray:
     """Transform partial AR/MA parameters and exponentiated scale parameters."""
     arr = np.asarray(draws, dtype=float)
     transformed = arr.copy()
 
-    if q > 0:
-        transformed[:, :q] = np.vstack([reparam(row[:q], MA=False) for row in arr])
-    if p > 0:
-        ma_start = q
-        ma_end = q + p
+    if ar_order > 0:
+        transformed[:, :ar_order] = np.vstack(
+            [reparam(row[:ar_order], MA=False) for row in arr]
+        )
+    if ma_order > 0:
+        ma_start = ar_order
+        ma_end = ar_order + ma_order
         transformed[:, ma_start:ma_end] = np.vstack(
             [reparam(row[ma_start:ma_end], MA=True) for row in arr]
         )
@@ -66,9 +73,16 @@ def transform_partial_draws(draws: np.ndarray, q: int, p: int, tfi_term: bool) -
     return transformed
 
 
-def parameter_names(q: int, p: int, tfi_term: bool, transformed: bool = True) -> list[str]:
+def parameter_names(
+    ar_order: int,
+    ma_order: int,
+    tfi_term: bool,
+    transformed: bool = True,
+) -> list[str]:
     """Column names for parameter draws."""
-    names = [f"phi{i + 1}" for i in range(q)] + [f"theta{i + 1}" for i in range(p)]
+    names = [f"phi{i + 1}" for i in range(ar_order)] + [
+        f"theta{i + 1}" for i in range(ma_order)
+    ]
     if tfi_term:
         names.extend(["lambda" if transformed else "log_lambda", "sigma2" if transformed else "log_sigma2", "d"])
     else:

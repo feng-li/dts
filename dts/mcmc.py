@@ -23,19 +23,23 @@ from dts.progress import progress_bar
 class ModelSpec:
     """ARMA/ARTFIMA model specification.
 
+    ``ar_order`` and ``ma_order`` follow the conventional ARMA(p, q)
+    terminology: ``ar_order`` is the autoregressive order and ``ma_order`` is
+    the moving-average order.
+
     Parameters are represented as
     ``[ar_partial..., ma_partial..., log_lambda, log_sigma2, d]`` for ARTFIMA
     and ``[ar_partial..., ma_partial..., log_sigma2]`` for ARMA.
     """
 
-    q: int
-    p: int
+    ar_order: int
+    ma_order: int
     tfi_term: bool = False
     exact: bool = False
 
     @property
     def n_params(self) -> int:
-        return self.q + self.p + (3 if self.tfi_term else 1)
+        return self.ar_order + self.ma_order + (3 if self.tfi_term else 1)
 
     @property
     def last_arma(self) -> int:
@@ -76,7 +80,7 @@ def f_ARTFIMA(omega, phi, theta, var, d, lambda_):
     )
 
 
-def whittle_log_likelihood(params, q, p, I_pg, TFI_term, omega_shard):
+def whittle_log_likelihood(params, ar_order, ma_order, I_pg, TFI_term, omega_shard):
     """Whittle log-likelihood contributions for positive Fourier frequencies."""
     if TFI_term:
         d = params[-1]
@@ -87,17 +91,21 @@ def whittle_log_likelihood(params, q, p, I_pg, TFI_term, omega_shard):
         lambda_ = 0.0
         var = np.exp(params[-1])
 
-    phi = reparam(params[:q], MA=False) if q > 0 else np.array([])
-    theta = reparam(params[q : q + p], MA=True) if p > 0 else np.array([])
+    phi = reparam(params[:ar_order], MA=False) if ar_order > 0 else np.array([])
+    theta = (
+        reparam(params[ar_order : ar_order + ma_order], MA=True)
+        if ma_order > 0
+        else np.array([])
+    )
     density = f_ARTFIMA(omega_shard, phi, theta, var, d, lambda_)
     return -(np.log(density) + I_pg / density)
 
 
-@partial(jit, static_argnames=("q", "p", "TFI_term", "last_arma"))
+@partial(jit, static_argnames=("ar_order", "ma_order", "TFI_term", "last_arma"))
 def whittle_log_posterior_jit(
     theta,
-    q: int,
-    p: int,
+    ar_order: int,
+    ma_order: int,
     I_pg,
     TFI_term: bool,
     omega_shard,
@@ -106,7 +114,14 @@ def whittle_log_posterior_jit(
     params_prior_sd: float,
     last_arma: int,
 ):
-    log_likelihood = whittle_log_likelihood(theta, q, p, I_pg, TFI_term, omega_shard)
+    log_likelihood = whittle_log_likelihood(
+        theta,
+        ar_order,
+        ma_order,
+        I_pg,
+        TFI_term,
+        omega_shard,
+    )
     prior = log_prior(
         theta,
         params_prior_mu,
@@ -119,14 +134,25 @@ def whittle_log_posterior_jit(
     return np.sum(log_likelihood) + prior
 
 
-def exact_log_likelihood_arma(data, params, q, p):
+def exact_log_likelihood_arma(data, params, ar_order, ma_order):
     """Exact Gaussian ARMA log-likelihood using statsmodels innovations."""
     if hasattr(params, "_value"):
         params = params._value
     params_np = onp.asarray(params, dtype=float)
 
-    phi = onp.asarray(reparam(params_np[:q], MA=False), dtype=float) if q > 0 else onp.array([])
-    theta = onp.asarray(reparam(params_np[q : q + p], MA=True), dtype=float) if p > 0 else onp.array([])
+    phi = (
+        onp.asarray(reparam(params_np[:ar_order], MA=False), dtype=float)
+        if ar_order > 0
+        else onp.array([])
+    )
+    theta = (
+        onp.asarray(
+            reparam(params_np[ar_order : ar_order + ma_order], MA=True),
+            dtype=float,
+        )
+        if ma_order > 0
+        else onp.array([])
+    )
     var = float(onp.exp(params_np[-1]))
     return sm.tsa.innovations.arma_loglike(onp.asarray(data, dtype=float), phi, theta, sigma2=var)
 
@@ -189,8 +215,8 @@ def parameter_bounds(n_params: int, tfi_term: bool) -> Tuple[onp.ndarray, onp.nd
 
 
 def sampler(
-    q,
-    p,
+    ar_order,
+    ma_order,
     data,
     I_pg,
     TFI_term,
@@ -226,7 +252,12 @@ def sampler(
 
     def log_posterior(theta):
         if exact:
-            log_likelihood = exact_log_likelihood_arma(data, theta, q, p)
+            log_likelihood = exact_log_likelihood_arma(
+                data,
+                theta,
+                ar_order,
+                ma_order,
+            )
             prior = log_prior(
                 theta,
                 params_prior_mu,
@@ -240,8 +271,8 @@ def sampler(
         return float(
             whittle_log_posterior_jit(
                 theta,
-                q,
-                p,
+                ar_order,
+                ma_order,
                 I_pg_jax,
                 TFI_term,
                 omega_shard_jax,
@@ -281,8 +312,8 @@ def sampler(
 
 
 def sampler_exact(
-    q,
-    p,
+    ar_order,
+    ma_order,
     data,
     n_samples,
     paramsStar,
@@ -295,8 +326,8 @@ def sampler_exact(
     progress_desc: str | None = None,
 ):
     return sampler(
-        q=q,
-        p=p,
+        ar_order=ar_order,
+        ma_order=ma_order,
         data=data,
         I_pg=None,
         TFI_term=False,
@@ -315,8 +346,8 @@ def sampler_exact(
 
 
 def sampler_whittle(
-    q,
-    p,
+    ar_order,
+    ma_order,
     I_pg,
     TFI_term,
     omega_shard,
@@ -332,8 +363,8 @@ def sampler_whittle(
     progress_desc: str | None = None,
 ):
     return sampler(
-        q=q,
-        p=p,
+        ar_order=ar_order,
+        ma_order=ma_order,
         data=None,
         I_pg=I_pg,
         TFI_term=TFI_term,

@@ -158,12 +158,22 @@ def save_draw_summary(
     draws: np.ndarray,
     reference: np.ndarray | None = None,
 ) -> None:
-    transformed = transform_partial_draws(draws, model.q, model.p, model.tfi_term)
-    names = parameter_names(model.q, model.p, model.tfi_term)
+    transformed = transform_partial_draws(
+        draws,
+        model.ar_order,
+        model.ma_order,
+        model.tfi_term,
+    )
+    names = parameter_names(model.ar_order, model.ma_order, model.tfi_term)
     intervals = credible_interval(transformed)
     distances = None
     if reference is not None:
-        ref_transformed = transform_partial_draws(reference, model.q, model.p, model.tfi_term)
+        ref_transformed = transform_partial_draws(
+            reference,
+            model.ar_order,
+            model.ma_order,
+            model.tfi_term,
+        )
         distances = wasserstein_quantile_distance(ref_transformed, transformed)
 
     file_exists = csv_path.exists()
@@ -198,13 +208,18 @@ def plot_marginals(
     average_draws: np.ndarray | None = None,
     shard_draws: list[np.ndarray] | None = None,
 ) -> None:
-    names = parameter_names(model.q, model.p, model.tfi_term)
+    names = parameter_names(model.ar_order, model.ma_order, model.tfi_term)
     cols = min(3, len(names))
     rows = int(np.ceil(len(names) / cols))
     fig, axes = plt.subplots(rows, cols, figsize=(4.2 * cols, 3.2 * rows), squeeze=False)
 
     def transformed(draws: np.ndarray) -> np.ndarray:
-        return transform_partial_draws(draws, model.q, model.p, model.tfi_term)
+        return transform_partial_draws(
+            draws,
+            model.ar_order,
+            model.ma_order,
+            model.tfi_term,
+        )
 
     full_t = transformed(full_draws) if full_draws is not None else None
     consensus_t = transformed(consensus_draws)
@@ -239,8 +254,16 @@ def run_combination(
     full_cache: FullFitCache,
 ) -> list[dict]:
     specs = [
-        ("sim_artfima", args.data_dir / "SimARTFIMA11.txt", ModelSpec(q=1, p=1, tfi_term=True)),
-        ("vancouver", args.data_dir / "Vancouver.npy", ModelSpec(q=1, p=2, tfi_term=False)),
+        (
+            "sim_artfima",
+            args.data_dir / "SimARTFIMA11.txt",
+            ModelSpec(ar_order=1, ma_order=1, tfi_term=True),
+        ),
+        (
+            "vancouver",
+            args.data_dir / "Vancouver.npy",
+            ModelSpec(ar_order=1, ma_order=2, tfi_term=False),
+        ),
     ]
     records = []
     summary_csv = args.output_dir / "posterior_summary.csv"
@@ -295,8 +318,8 @@ def run_group_size(
     data = maybe_truncate(load_series(args.data_dir / "SimARTFIMA11.txt"), max_observations)
     group_values = [2, 4] if args.preset == "quick" else [10, 100, 1000]
     models = [
-        ("arma11", ModelSpec(q=1, p=1, tfi_term=False)),
-        ("artfima11", ModelSpec(q=1, p=1, tfi_term=True)),
+        ("arma11", ModelSpec(ar_order=1, ma_order=1, tfi_term=False)),
+        ("artfima11", ModelSpec(ar_order=1, ma_order=1, tfi_term=True)),
     ]
     records = []
     summary_csv = args.output_dir / "posterior_summary.csv"
@@ -339,7 +362,7 @@ def run_partition(
     full_cache: FullFitCache,
 ) -> list[dict]:
     data = maybe_truncate(load_series(args.data_dir / "SimARTFIMA11.txt"), max_observations)
-    model = ModelSpec(q=1, p=1, tfi_term=True)
+    model = ModelSpec(ar_order=1, ma_order=1, tfi_term=True)
     full = fit_full_cached(full_cache, "sim_artfima", data, model, settings)
     summary_csv = args.output_dir / "posterior_summary.csv"
     records = []
@@ -371,7 +394,7 @@ def run_time_frequency(
     full_cache: FullFitCache,
 ) -> list[dict]:
     data = maybe_truncate(load_series(args.data_dir / "Vancouver.npy"), max_observations)
-    model = ModelSpec(q=1, p=0, tfi_term=False)
+    model = ModelSpec(ar_order=1, ma_order=0, tfi_term=False)
     full = fit_full_cached(full_cache, "vancouver", data, model, settings)
     summary_csv = args.output_dir / "posterior_summary.csv"
     records = []

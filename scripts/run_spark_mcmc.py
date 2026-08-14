@@ -25,8 +25,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--column", default="y")
     parser.add_argument("--groups", type=int, default=10)
     parser.add_argument("--fft-partitions", type=int, default=16)
-    parser.add_argument("--q", type=int, default=1)
-    parser.add_argument("--p", type=int, default=1)
+    parser.add_argument("--ar-order", type=int, default=1)
+    parser.add_argument("--ma-order", type=int, default=1)
     parser.add_argument("--tfi-term", action="store_true")
     parser.add_argument("--samples", type=int, default=5000)
     parser.add_argument("--burn-in", type=int, default=1000)
@@ -50,7 +50,12 @@ def main() -> None:
     raw_df = spark.read.csv(str(args.input), header=True, inferSchema=True)
     periodogram_df = spark_periodogram_dataframe(raw_df, args.column, args.fft_partitions, args.groups)
 
-    conf_model = {"TFI_term": args.tfi_term, "partition_num": args.groups, "q": args.q, "p": args.p}
+    conf_model = {
+        "TFI_term": args.tfi_term,
+        "partition_num": args.groups,
+        "ar_order": args.ar_order,
+        "ma_order": args.ma_order,
+    }
     conf_mcmc = {
         "n_samples": args.samples,
         "Burn_in": args.burn_in,

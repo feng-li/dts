@@ -145,7 +145,12 @@ def main() -> None:
         x = x[-max_observations:]
         y = y[-max_observations:]
 
-    spec = RegressionSpec(q=2, p=0, n_exog=x.shape[1], tfi_term=False)
+    spec = RegressionSpec(
+        ar_order=2,
+        ma_order=0,
+        n_exog=x.shape[1],
+        tfi_term=False,
+    )
     result = fit_regression_frequency_divide_and_conquer(
         x=x,
         y=y,
