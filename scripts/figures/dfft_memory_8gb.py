@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 
 
 def load_rows(paths: list[Path]) -> dict[int, dict[str, str]]:
@@ -23,7 +24,8 @@ def load_rows(paths: list[Path]) -> dict[int, dict[str, str]]:
 
 def seconds_text(value: float) -> str:
     if value < 0.001:
-        return f"{value:.2e}"
+        mantissa, exponent = f"{value:.2e}".split("e")
+        return rf"${mantissa} \times 10^{{{int(exponent)}}}$"
     return f"{value:.3f}"
 
 
@@ -146,17 +148,17 @@ def main() -> None:
             "font.family": "serif",
             "font.serif": ["Times New Roman", "Times", "DejaVu Serif"],
             "mathtext.fontset": "stix",
-            "font.size": 13,
+            "font.size": 15,
             "text.color": "black",
-            "axes.labelsize": 15,
+            "axes.labelsize": 17,
             "axes.labelcolor": "black",
             "axes.edgecolor": "black",
             "axes.linewidth": 0.8,
-            "xtick.labelsize": 12,
-            "ytick.labelsize": 13,
+            "xtick.labelsize": 15,
+            "ytick.labelsize": 15,
             "xtick.color": "black",
             "ytick.color": "black",
-            "legend.fontsize": 12,
+            "legend.fontsize": 15,
             "legend.labelcolor": "black",
             "pdf.fonttype": 42,
             "ps.fonttype": 42,
@@ -189,6 +191,7 @@ def main() -> None:
             color="#D62728",
             alpha=0.08,
             linewidth=0,
+            label="NumPy OOM Zone",
         )
 
     axis.set_yscale("log")
@@ -207,7 +210,19 @@ def main() -> None:
     )
     axis.set_xticklabels(
         [rf"$10^{{{value}}}$" for value in decade_exponents]
-        + [r"$2.68\times10^8$"]
+        + [""]
+    )
+    axis.annotate(
+        r"$2.68\times10^8$",
+        xy=(max(series_lengths), 0),
+        xycoords=axis.get_xaxis_transform(),
+        xytext=(24, -7.5),
+        textcoords="offset points",
+        horizontalalignment="center",
+        verticalalignment="top",
+        fontsize=plt.rcParams["xtick.labelsize"],
+        color="black",
+        annotation_clip=False,
     )
     axis.set_xlabel(r"$T$")
     size_exponents = [
@@ -222,13 +237,30 @@ def main() -> None:
     axis.spines["right"].set_visible(False)
     axis.tick_params(axis="both", direction="out", length=4, width=0.8)
     size_axis.tick_params(
-        axis="x", direction="out", length=4, width=0.8, labelsize=8
+        axis="x",
+        direction="out",
+        length=4,
+        width=0.8,
+        labelsize=15,
+        labelrotation=90,
+    )
+    axis.add_patch(
+        Rectangle(
+            (0.0, 1.0),
+            1.0,
+            0.25,
+            transform=axis.transAxes,
+            facecolor="none",
+            edgecolor="black",
+            linewidth=0.8,
+            clip_on=False,
+        )
     )
     axis.legend(
         frameon=False,
         loc="lower center",
         bbox_to_anchor=(0.5, 0.02),
-        ncol=2,
+        ncol=1,
     )
     figure.tight_layout()
     figure.savefig(pdf_path, bbox_inches="tight")
