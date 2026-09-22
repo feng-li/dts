@@ -2,6 +2,22 @@
 
 `dts` provides reproducible implementations of frequency-domain divide-and-conquer Bayesian inference for long stationary time series. It combines Whittle-likelihood inference, distributed FFT, and shard-wise MCMC with subposterior aggregation.
 
+## Paper
+
+This repository accompanies our paper [Spectral Divide-and-Conquer MCMC for Long Stationary Time Series](https://arxiv.org/abs/2609.23985) by Zixuan Wang, Matias Quiroz, Feng Li, Mattias Villani, and Robert Kohn (2026).
+
+To cite the paper:
+
+```bibtex
+@misc{WangZ2026SpectralDivideandconquer,
+  title = {Spectral Divide-and-Conquer MCMC for Long Stationary Time Series},
+  author = {Wang, Zixuan and Quiroz, Matias and Li, Feng and Villani, Mattias and Kohn, Robert},
+  year = {2026},
+  month = sep,
+  url = {https://arxiv.org/abs/2609.23985}
+}
+```
+
 ## Purpose
 
 - Enable scalable Bayesian inference for long univariate and multivariate time-series datasets.
@@ -78,5 +94,3 @@ spark-submit scripts/run_spark_mcmc.py \
   --tfi-term \
   --output artifacts/spark_mcmc
 ```
-
-Use `docs/REPLICATION.md` for full manuscript settings, including longer runs and output locations.
