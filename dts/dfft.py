@@ -46,7 +46,9 @@ def spark_fft_rdd(rdd, series_length: int | None = None):
     """Cooley-Tukey style FFT over an RDD.
 
     The RDD partition count must be a power of two and divide the series length.
-    Returns an RDD of ``(frequency_index, fft_value)`` sorted by frequency index.
+    Returns an RDD of ``(frequency_index, fft_value)`` in the block-cyclic
+    layout produced by the second shuffle; entries with the same frequency
+    index modulo ``series_length // partitions`` share a partition.
     """
     n_obs = int(series_length or rdd.count())
     partitions = rdd.getNumPartitions()
@@ -55,7 +57,11 @@ def spark_fft_rdd(rdd, series_length: int | None = None):
 
 
 def spark_fft_indexed_rdd(indexed_rdd, series_length: int, partitions: int):
-    """FFT over an RDD of ``(original_index, value)`` pairs."""
+    """FFT over an RDD of ``(original_index, value)`` pairs.
+
+    The output is not globally sorted by frequency index: retaining the
+    block-cyclic layout avoids a third shuffle.
+    """
     if partitions < 1 or (partitions & (partitions - 1)) != 0:
         raise ValueError("partitions must be a power of two")
     if series_length % partitions:
@@ -85,7 +91,7 @@ def spark_fft_indexed_rdd(indexed_rdd, series_length: int, partitions: int):
         for q, fft_value in enumerate(np.fft.fft(vals)):
             yield (q * block_size + r, fft_value)
 
-    return grouped.flatMap(second_stage).sortByKey()
+    return grouped.flatMap(second_stage)
 
 
 def spark_periodogram_dataframe(df, column: str, fft_partitions: int, n_groups: int):

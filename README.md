@@ -47,20 +47,13 @@ To cite the paper:
 ## Environment
 
 - Python: >= 3.9
-- Core dependencies: `numpy`, `scipy`, `pandas`, `jax`, `autograd`, `ray`, `statsmodels`, `tqdm`, `matplotlib`.
-- Optional dependency for distributed FFT/MCMC: `pyspark` (Spark backend).
+- Core dependencies: `numpy`, `scipy`, `pandas`, `jax`, `autograd`, `ray`, `statsmodels`, `tqdm`, `matplotlib`, `pyspark`.
 - The codebase is designed for Unix-like environments; Spark workflows require a working Spark installation and Java runtime for your Spark distribution.
 
 Install the package in editable mode:
 
 ```sh
 python -m pip install -e .
-```
-
-Add optional Spark support:
-
-```sh
-python -m pip install -e ".[spark]"
 ```
 
 ## Quick Start
@@ -88,7 +81,7 @@ spark-submit scripts/run_spark_mcmc.py \
   --input data/SimARTFIMA11.csv \
   --column y \
   --groups 10 \
-  --fft-partitions 16 \
+  --fft-partitions 256 \
   --ar-order 1 \
   --ma-order 1 \
   --tfi-term \

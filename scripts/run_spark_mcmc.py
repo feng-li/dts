@@ -24,7 +24,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", type=Path, default=REPO_ROOT / "data" / "SimARTFIMA11.csv")
     parser.add_argument("--column", default="y")
     parser.add_argument("--groups", type=int, default=10)
-    parser.add_argument("--fft-partitions", type=int, default=16)
+    parser.add_argument("--fft-partitions", type=int, default=256)
     parser.add_argument("--ar-order", type=int, default=1)
     parser.add_argument("--ma-order", type=int, default=1)
     parser.add_argument("--tfi-term", action="store_true")
