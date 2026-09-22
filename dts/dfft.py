@@ -95,15 +95,27 @@ def spark_fft_indexed_rdd(indexed_rdd, series_length: int, partitions: int):
 
 
 def spark_periodogram_dataframe(df, column: str, fft_partitions: int, n_groups: int):
-    """Compute a Spark DataFrame with positive-frequency periodogram shards."""
+    """Compute a Spark DataFrame with positive-frequency periodogram shards.
+
+    When the series length is not divisible by ``fft_partitions`` the excess
+    observations are dropped from the beginning, retaining the latest origin.
+    """
     spark = df.sparkSession
     rdd = df.select(column).rdd.map(lambda row: float(row[column]))
     n_obs = rdd.count()
+    if n_obs < fft_partitions:
+        raise ValueError(
+            f"number of observations {n_obs} is smaller than fft_partitions={fft_partitions}"
+        )
     indexed = rdd.zipWithIndex().map(lambda item: (int(item[1]), float(item[0])))
     remainder = n_obs % fft_partitions
     if remainder:
+        # Drop the excess from the beginning, not the end, so the retained
+        # window ends at the latest observation; re-index to a contiguous series.
         keep = n_obs - remainder
-        indexed = indexed.filter(lambda item: item[0] < keep)
+        indexed = indexed.filter(lambda item: item[0] >= remainder).map(
+            lambda item: (int(item[0]) - remainder, item[1])
+        )
         n_obs = keep
 
     fft_rdd = spark_fft_indexed_rdd(indexed.repartition(fft_partitions), n_obs, fft_partitions)
