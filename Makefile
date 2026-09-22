@@ -6,6 +6,6 @@ zip:
 install:
 	pip install --editable .
 
+# Run in a clean venv containing only this project's dependencies.
 update-requirements:
-	pip install pipreqs -U
-	pipreqs ./ --force
+	pip freeze --exclude-editable > requirements.txt
