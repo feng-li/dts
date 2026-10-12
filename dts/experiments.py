@@ -16,10 +16,10 @@ import numpy as np
 from dts.aggregation import consensus, simple_average
 from dts.mcmc import (
     ModelSpec,
-    log_prior,
     parameter_bounds,
     sampler,
-    whittle_log_likelihood,
+    validate_mean_data,
+    whittle_log_posterior_jit,
 )
 from dts.optimization import fit_map_and_proposal
 from dts.partition import frequency_domain, shard_frequency_domain, time_partition_indices
@@ -42,6 +42,7 @@ class MCMCSettings:
     backend: str = "auto"
     num_cpus: int | None = None
     ray_address: str | None = None
+    sampler_backend: str = 'compiled'
 
 
 @dataclass
@@ -86,24 +87,21 @@ def initial_params(model: ModelSpec, seed: int = 123) -> np.ndarray:
     return 0.01 * np.ones(model.n_params) + rng.normal(0.0, 0.1, size=model.n_params)
 
 
-def whittle_log_posterior(params, model: ModelSpec, periodogram, omega, n_groups: int = 1):
-    return log_prior(
-        params,
-        0.0,
-        1.0,
-        model.last_arma,
-        model.tfi_term,
-        n_groups=n_groups,
-        check_bounds=True,
-    ) + jnp.sum(
-        whittle_log_likelihood(
-            params,
-            model.ar_order,
-            model.ma_order,
-            periodogram,
-            model.tfi_term,
-            omega,
-        )
+def mean_data_of(data: np.ndarray) -> tuple[float, int]:
+    """Sample mean and length of the series the target is declared for."""
+    values = np.asarray(data, dtype=float).reshape(-1)
+    return float(np.mean(values)), int(len(values))
+
+
+def whittle_log_posterior(params, model: ModelSpec, periodogram, omega, n_groups: int = 1,
+                          mean_data=None):
+    if mean_data is not None and not model.mean_term:
+        raise ValueError("mean_data requires ModelSpec(mean_term=True)")
+    ybar, length = validate_mean_data(mean_data) if model.mean_term else (None, None)
+    return whittle_log_posterior_jit(
+        params, model.ar_order, model.ma_order, periodogram, model.tfi_term,
+        omega, n_groups, 0.0, 1.0, model.last_arma,
+        mean_term=model.mean_term, mean_ybar=ybar, mean_series_length=length,
     )
 
 
@@ -114,17 +112,23 @@ def fit_whittle_shard(
     settings: MCMCSettings,
     n_groups: int = 1,
     group_id: int = 0,
+    mean_data=None,
 ) -> ShardResult:
     """Fit one Whittle subposterior."""
+    if mean_data is not None and not model.mean_term:
+        raise ValueError("mean_data requires ModelSpec(mean_term=True)")
+    if model.mean_term:
+        mean_data = validate_mean_data(mean_data)
     periodogram = jnp.asarray(periodogram)
     omega = jnp.asarray(omega)
     theta0 = initial_params(model, seed=settings.seed + group_id)
     sample_desc = "MCMC full" if n_groups == 1 else f"MCMC shard {group_id + 1}/{n_groups}"
 
     def logp(theta):
-        return whittle_log_posterior(theta, model, periodogram, omega, n_groups=n_groups)
+        return whittle_log_posterior(theta, model, periodogram, omega, n_groups=n_groups,
+                                     mean_data=mean_data)
 
-    lower, upper = parameter_bounds(model.n_params, model.tfi_term)
+    lower, upper = parameter_bounds(model.n_params, model.tfi_term, model.mean_term)
     objective = lambda theta: -logp(theta)
     fit = fit_map_and_proposal(objective, theta0, lower, upper, settings, group_id=group_id)
 
@@ -144,17 +148,25 @@ def fit_whittle_shard(
         random_state=settings.seed + 10_000 + group_id,
         progress=settings.progress,
         progress_desc=sample_desc,
+        mean_term=model.mean_term,
+        mean_data=mean_data,
+        backend=settings.sampler_backend,
     )
     return ShardResult(draws, log_p, acceptance, fit.theta, fit.proposal_cov, group_id=group_id)
 
 
-def fit_full_whittle(data: np.ndarray, model: ModelSpec, settings: MCMCSettings) -> ShardResult:
+def fit_full_whittle(data: np.ndarray, model: ModelSpec, settings: MCMCSettings,
+                     mean_data=None) -> ShardResult:
     values, omega = frequency_domain(data)
-    return fit_whittle_shard(values, omega, model, settings, n_groups=1, group_id=0)
+    if model.mean_term and mean_data is None:
+        mean_data = mean_data_of(data)
+    return fit_whittle_shard(values, omega, model, settings, n_groups=1, group_id=0,
+                             mean_data=mean_data)
 
 
 def _fit_whittle_shard_payload(payload):
-    index, shard_periodogram, shard_omega, model, settings, n_groups, group_id = payload
+    (index, shard_periodogram, shard_omega, model, settings, n_groups, group_id,
+     mean_data) = payload
     return index, fit_whittle_shard(
         shard_periodogram,
         shard_omega,
@@ -162,6 +174,7 @@ def _fit_whittle_shard_payload(payload):
         settings,
         n_groups=n_groups,
         group_id=group_id,
+        mean_data=mean_data,
     )
 
 
@@ -175,6 +188,7 @@ def _fit_whittle_shards(
     settings: MCMCSettings,
     n_groups: int,
     desc: str,
+    mean_data=None,
 ) -> list[ShardResult]:
     backend = resolve_shard_backend(settings.backend, settings.num_cpus)
     if backend == "local":
@@ -195,6 +209,7 @@ def _fit_whittle_shards(
                     settings,
                     n_groups=n_groups,
                     group_id=group_id,
+                    mean_data=mean_data,
                 )
             )
         return shards
@@ -202,7 +217,8 @@ def _fit_whittle_shards(
     if backend == "ray":
         worker_settings = _worker_settings(settings)
         payloads = [
-            (group_id, shard_periodogram, shard_omega, model, worker_settings, n_groups, group_id)
+            (group_id, shard_periodogram, shard_omega, model, worker_settings, n_groups,
+             group_id, mean_data)
             for group_id, (_, shard_periodogram, shard_omega) in enumerate(shard_data)
         ]
         return run_indexed_ray_tasks(
@@ -224,8 +240,11 @@ def fit_frequency_divide_and_conquer(
     n_groups: int = 10,
     partition: str = "systematic",
     include_full: bool = True,
+    mean_data=None,
 ) -> DistributedResult:
     """Run Whittle MCMC on frequency shards and aggregate draws."""
+    if model.mean_term and mean_data is None:
+        mean_data = mean_data_of(data)
     shard_data = shard_frequency_domain(data, n_groups=n_groups, method=partition)
     shards = _fit_whittle_shards(
         shard_data,
@@ -233,9 +252,10 @@ def fit_frequency_divide_and_conquer(
         settings,
         n_groups,
         desc=f"{partition} frequency shards",
+        mean_data=mean_data,
     )
 
-    full = fit_full_whittle(data, model, settings) if include_full else None
+    full = fit_full_whittle(data, model, settings, mean_data=mean_data) if include_full else None
     shard_draws = [item.draws for item in shards]
     return DistributedResult(
         full=full,
@@ -253,12 +273,15 @@ def fit_time_domain_as_frequency_shards(
     settings: MCMCSettings,
     n_groups: int = 10,
     include_full: bool = True,
+    mean_data=None,
 ) -> DistributedResult:
     """Naive time-domain splitting followed by local Whittle fits.
 
     This reproduces the comparison logic in the paper: each shorter segment is
     analyzed independently, which loses global low-frequency information.
     """
+    if model.mean_term and mean_data is None:
+        mean_data = mean_data_of(data)
     groups = time_partition_indices(len(data), n_groups)
     shard_data = []
     for indices in groups:
@@ -270,9 +293,10 @@ def fit_time_domain_as_frequency_shards(
         settings,
         n_groups,
         desc="time shards",
+        mean_data=mean_data,
     )
 
-    full = fit_full_whittle(data, model, settings) if include_full else None
+    full = fit_full_whittle(data, model, settings, mean_data=mean_data) if include_full else None
     shard_draws = [item.draws for item in shards]
     return DistributedResult(
         full=full,

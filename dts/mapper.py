@@ -11,7 +11,7 @@ from dts.experiments import MCMCSettings, fit_whittle_shard
 from dts.mcmc import ModelSpec
 
 
-def mapper(pdf: pd.DataFrame, conf_model: Dict[str, Any], conf_mcmc: Dict[str, int]) -> pd.DataFrame:
+def mapper(pdf: pd.DataFrame, conf_model: Dict[str, Any], conf_mcmc: Dict[str, Any]) -> pd.DataFrame:
     """Run Whittle MCMC for one Spark shard.
 
     Expected input columns are ``shard_id``, ``periodogram`` and ``omega`` as
@@ -28,7 +28,14 @@ def mapper(pdf: pd.DataFrame, conf_model: Dict[str, Any], conf_mcmc: Dict[str, i
         ma_order=int(conf_model["ma_order"]),
         tfi_term=bool(conf_model.get("TFI_term", False)),
         exact=False,
+        mean_term=bool(conf_model.get("mean_term", False)),
     )
+    mean_data = None
+    if model.mean_term:
+        missing_mean = {"mean_ybar", "mean_length"}.difference(conf_model)
+        if missing_mean:
+            raise ValueError(f"mean_term=True requires Spark metadata: {sorted(missing_mean)}")
+        mean_data = (conf_model["mean_ybar"], conf_model["mean_length"])
     settings = MCMCSettings(
         n_samples=int(conf_mcmc["n_samples"]),
         burn_in=int(conf_mcmc["Burn_in"]),
@@ -36,6 +43,7 @@ def mapper(pdf: pd.DataFrame, conf_model: Dict[str, Any], conf_mcmc: Dict[str, i
         optimize=bool(conf_mcmc.get("optimize", True)),
         basinhopping=bool(conf_mcmc.get("basinhopping", False)),
         basinhopping_iter=int(conf_mcmc.get("basinhopping_iter", 25)),
+        sampler_backend=str(conf_mcmc.get('sampler_backend', 'compiled')),
     )
     n_groups = int(conf_model["partition_num"])
 
@@ -46,6 +54,7 @@ def mapper(pdf: pd.DataFrame, conf_model: Dict[str, Any], conf_mcmc: Dict[str, i
         settings=settings,
         n_groups=n_groups,
         group_id=group_id,
+        mean_data=mean_data,
     )
 
     return pd.DataFrame(

@@ -31,6 +31,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--samples", type=int, default=5000)
     parser.add_argument("--burn-in", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=123)
+    parser.add_argument('--sampler-backend', choices=['compiled', 'vanilla'], default='compiled')
     parser.add_argument("--basinhopping", action="store_true")
     parser.add_argument("--basinhopping-iter", type=int, default=25)
     parser.add_argument("--output", type=Path, default=REPO_ROOT / "artifacts" / "spark_mcmc")
@@ -60,6 +61,7 @@ def main() -> None:
         "n_samples": args.samples,
         "Burn_in": args.burn_in,
         "seed": args.seed,
+        'sampler_backend': args.sampler_backend,
         "basinhopping": args.basinhopping,
         "basinhopping_iter": args.basinhopping_iter,
     }

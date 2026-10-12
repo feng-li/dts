@@ -1,4 +1,14 @@
 __pycache__/
 *.py[cod]
-artifacts/
-results/
+/artifacts
+/results
+/output
+/tmp
+/.pytest_cache
+/.ipynb_checkpoints
+/.eggs
+/README.html
+
+# Keep regression tests visible even when a global ignore excludes tests/.
+!/tests/
+!/tests/test_*.py

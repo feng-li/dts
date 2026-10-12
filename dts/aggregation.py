@@ -48,10 +48,12 @@ def transform_partial_draws(
     ar_order: int,
     ma_order: int,
     tfi_term: bool,
+    mean_term: bool = False,
 ) -> np.ndarray:
     """Transform partial AR/MA parameters and exponentiated scale parameters."""
     arr = np.asarray(draws, dtype=float)
     transformed = arr.copy()
+    offset = 1 if mean_term else 0
 
     if ar_order > 0:
         transformed[:, :ar_order] = np.vstack(
@@ -65,10 +67,10 @@ def transform_partial_draws(
         )
 
     if tfi_term:
-        transformed[:, -3] = np.exp(arr[:, -3])
-        transformed[:, -2] = np.exp(arr[:, -2])
+        transformed[:, -3 - offset] = np.exp(arr[:, -3 - offset])
+        transformed[:, -2 - offset] = np.exp(arr[:, -2 - offset])
     else:
-        transformed[:, -1] = np.exp(arr[:, -1])
+        transformed[:, -1 - offset] = np.exp(arr[:, -1 - offset])
 
     return transformed
 
@@ -78,6 +80,7 @@ def parameter_names(
     ma_order: int,
     tfi_term: bool,
     transformed: bool = True,
+    mean_term: bool = False,
 ) -> list[str]:
     """Column names for parameter draws."""
     names = [f"phi{i + 1}" for i in range(ar_order)] + [
@@ -87,6 +90,8 @@ def parameter_names(
         names.extend(["lambda" if transformed else "log_lambda", "sigma2" if transformed else "log_sigma2", "d"])
     else:
         names.append("sigma2" if transformed else "log_sigma2")
+    if mean_term:
+        names.append("mu")
     return names
 
 
@@ -108,7 +113,9 @@ def wasserstein_barycenter(draws: Iterable[np.ndarray], nsamp: int = 5000) -> np
     """Merge chains by averaging marginal quantile functions.
 
     This is the Wasserstein-barycenter helper from the AR(2) comparison script,
-    made reusable for diagnostics and DC-BATS comparisons.
+    made reusable for marginal diagnostics. Columns are quantile summaries;
+    aligned rows are NOT joint posterior draws and must not be passed to
+    nonlinear predictive functions or interpreted as an MCMC chain.
     """
     draw_list = _as_draw_list(draws)
     n_params = draw_list[0].shape[1]

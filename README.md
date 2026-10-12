@@ -38,11 +38,33 @@ To cite the paper:
 
 - `dts/`: reusable Python package.
 - `scripts/`: entry points for replication and Spark workflows.
+- `scripts/liquidity/`: CSI 300 liquidity construction, audits, forecasts, and plots; see the [script catalog](LIQUIDITY.md) and [workflow guide](scripts/liquidity/README.md).
+- `projects/liquidity/`: shared liquidity models and order-book reconstruction.
 - `data/`: input data used by examples and experiments.
 - `docs/`: manuscript sources and supporting replication notes.
 - `results/`: generated outputs from benchmark runs.
 - `legacy/`: archived earlier scripts for provenance.
 - `requirements.txt` / `pyproject.toml`: environment specifications.
+
+## Generated Results
+
+Store generated results under `~/running/dts/`, outside the source checkout.
+This checkout's `artifacts`, `results`, `output`, and `tmp` entries are ignored
+symbolic links to the corresponding directories there. Existing commands and
+saved absolute paths continue to work through these links, including incremental
+resume and references to previously generated stock panels. PDFs are stored in
+`~/running/dts/output/pdf/`. The move is recorded in
+`~/running/dts/migration.json`.
+
+Remaining manuscript figures and older document outputs are stored under
+`~/running/dts/output/docs/`; build files and previews are under
+`~/running/dts/tmp/`, and Python/notebook caches are under
+`~/running/dts/cache/`. Compatibility links preserve existing manuscript and
+script paths. Additional moves are recorded in
+`~/running/dts/migration_artifacts_*.json`, including file hashes. From `docs/`,
+`latexmk -pdf ApplicationCSI300Liquidity.tex` writes its PDF to
+`~/running/dts/output/pdf/` and auxiliary files to
+`~/running/dts/tmp/latex/docs/` through the local `latexmkrc`.
 
 ## Environment
 
@@ -66,6 +88,13 @@ from dts import ModelSpec
 # ARMA(1, 2): one autoregressive term and two moving-average terms.
 model = ModelSpec(ar_order=1, ma_order=2)
 ```
+
+Whittle MCMC uses a compiled JAX loop and cached Fourier quantities by default.
+For numerical checks, call `dts.mcmc.sampler(..., backend="vanilla")` or set
+`MCMCSettings(sampler_backend="vanilla")`. The compiled and vanilla versions
+use the same priors, Metropolis rule and NumPy random stream; floating-point
+likelihood rounding can differ. Exact time-domain sampling retains its Python
+implementation. Spark commands accept `--sampler-backend vanilla`.
 
 Run a small sanity check:
 
