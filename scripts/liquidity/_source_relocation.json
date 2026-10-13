@@ -1,0 +1,22 @@
+{
+  "compare_csi300_boundary_random_days.py": {
+    "previous": "53cc2e55339085d608527c108ff9fd80e5b7a96df8fcc2d5f2a85d6416c0afbb",
+    "current": "32981eb17fba1cd7b1fa5e94ed09273f5219aad33c7d8e871061c07f9c89c85e"
+  },
+  "probe_csi300_fractional_changes.py": {
+    "previous": "cd5201ea2920e54debc83e20a0653f7951fd3e7f3ab1ec83900b73483a60d2d5",
+    "current": "184a841f77a89147172d7430a83b576eb1e52cf8e7f2d065a322d4b54a3d2ff5"
+  },
+  "run_csi300_fractional_changes_dc.py": {
+    "previous": "e54b5b96328395e0affcf090fdd17611122075ce2f06b11ff893d089b6e94059",
+    "current": "f3593b0e18df44fcb44d40c25b173f585c2589ec1feb44b0e8c33495bd24bd66"
+  },
+  "compare_csi300_forecasts.py": {
+    "previous": "8d2b177e0249684ea5c0c92e59815bed6b86654d30ef015d4281a11c12439eb1",
+    "current": "bd2cb7df6e34693d04c22ecd8e72248e54889e4c8fe17a8a0a2b1a6ea74738d9"
+  },
+  "fit_csi300_observed_dc.py": {
+    "previous": "a0ee09e9cb954c8cb0fda36f9ad37a0bce6c8e48cb25d2c4568c2e483333ad6f",
+    "current": "4315e9e84f9c2554bb427b875f1f496bd2ce58a2921243d6da769d2ab204325d"
+  }
+}
