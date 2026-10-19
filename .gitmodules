@@ -1,0 +1,3 @@
+[submodule "HighFrequencyLiquidity"]
+    path = HighFrequencyLiquidity
+    url = git@github.com:feng-li/HighFrequencyLiquidity.git

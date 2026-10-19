@@ -29,7 +29,7 @@ from scripts.liquidity._source_compat import register_relocated_protocol
 def target_value(theta,q,pg,groups):
     """Same native target, avoiding unused gradient work in MH evaluations."""
     ma,ll,ls,d=theta
-    if abs(ma)>=1 or abs(ll)>40 or abs(ls)>40 or abs(d)>20:
+    if not np.isfinite(theta).all() or abs(ma)>=1:
         return np.inf
     lam=np.exp(ll);e=np.exp(-lam);b0=(-np.expm1(-lam))**2
     value=(np.log(2)+1.5*np.log(2*np.pi)+.5*(ll*ll+ls*ls+d*d))/groups
@@ -50,7 +50,7 @@ def regular_target_value(theta,q,pg,groups,n,group):
     if n<=0 or (groups!=1 and groups!=2):
         return target_value(theta,q,pg,groups)
     ma,ll,ls,d=theta
-    if abs(ma)>=1 or abs(ll)>40 or abs(ls)>40 or abs(d)>20:
+    if not np.isfinite(theta).all() or abs(ma)>=1:
         return np.inf
     lam=np.exp(ll);e=np.exp(-lam);b0=(-np.expm1(-lam))**2
     m=n//groups

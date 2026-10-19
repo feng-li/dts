@@ -31,20 +31,79 @@ from scripts.liquidity._source_compat import register_relocated_protocol
 def target(t,q,pg,groups=1):
     """Native DTS negative Whittle log posterior for p=0,q=1."""
     theta,ll,ls,d=t
-    if abs(theta)>=1 or abs(ll)>40 or abs(ls)>40 or abs(d)>20:
+    if not np.isfinite(t).all() or abs(theta)>=1:
         return np.inf,np.zeros(4)
     lam=np.exp(ll);e=np.exp(-lam);b0=(-np.expm1(-lam))**2
+    le=lam*e if lam<700 else 0.  # Stable derivative after tempering saturates.
     value=(np.log(2)+1.5*np.log(2*np.pi)+.5*(ll*ll+ls*ls+d*d))/groups
     gradient=np.array([0.,ll/groups,ls/groups,d/groups])
     for j in range(len(q)):
         a=(1+theta)**2-theta*q[j];b=b0+e*q[j];logb=np.log(b)
         logf=ls-np.log(2*np.pi)+np.log(a)-d*logb
-        ratio=pg[j]*np.exp(-logf);factor=1-ratio
+        ratio=pg[j]*np.exp(-logf)
+        if not np.isfinite(ratio):return np.inf,np.zeros(4)
+        factor=1-ratio
         value+=logf+ratio
         gradient[0]+=factor*(2*(1+theta)-q[j])/a
-        gradient[1]+=factor*(-d)*lam*e*(2*(-np.expm1(-lam))-q[j])/b
+        gradient[1]+=factor*(-d)*le*(2*(-np.expm1(-lam))-q[j])/b
         gradient[2]+=factor;gradient[3]-=factor*logb
     return value,gradient
+
+
+@njit(cache=True,nogil=True)
+def spectrum_hessian(t,q,pg,groups=1):
+    """Unscaled native posterior curvature, stable close to the MA boundary."""
+    theta,ll,ls,d=t
+    lam=np.exp(ll);e=np.exp(-lam);c=-np.expm1(-lam)
+    le=lam*e if lam<700 else 0.
+    h=np.zeros((4,4))
+    h[1,1]=h[2,2]=h[3,3]=1./groups
+    for j in range(len(q)):
+        a=(1+theta)**2-theta*q[j];b=c*c+e*q[j]
+        b1=le*(2*c-q[j])
+        b2=le*((1-lam)*(2*c-q[j])+2*le) if lam<700 else 0.
+        g=np.array([(2*(1+theta)-q[j])/a,-d*b1/b,1.,-np.log(b)])
+        logf=ls-np.log(2*np.pi)+np.log(a)-d*np.log(b)
+        ratio=pg[j]*np.exp(-logf);factor=1-ratio
+        for k in range(4):
+            for l in range(4):h[k,l]+=ratio*g[k]*g[l]
+        h[0,0]+=factor*(2/a-g[0]*g[0])
+        h[1,1]+=factor*(-d)*(b2/b-(b1/b)**2)
+        h[1,3]-=factor*b1/b;h[3,1]-=factor*b1/b
+    return h
+
+
+def spectrum_map_quality(point,q,pg,groups=1):
+    value,gradient=target(np.asarray(point),q,pg,groups)
+    result=dict(negative_log_posterior=float(value),newton_distance=float('inf'),
+                hessian_eigenvalues=[],covariance=None,passed=False)
+    if not np.isfinite(value) or not np.isfinite(gradient).all():return result
+    h=spectrum_hessian(np.asarray(point),q,pg,groups);h=(h+h.T)/2
+    if not np.isfinite(h).all():return result
+    eigen=np.linalg.eigvalsh(h);result['hessian_eigenvalues']=eigen.tolist()
+    if eigen.min()>0:
+        distance=float(np.sqrt(max(0.,gradient@np.linalg.solve(h,gradient))))
+        result.update(newton_distance=distance,covariance=np.linalg.inv(h).tolist(),
+                      passed=bool(distance<=.01))
+    return result
+
+
+def refine_spectrum_map(fit,q,pg,groups=1):
+    """Damped Newton refinement of one mode; no artificial tail truncation."""
+    point=np.asarray(fit['theta'],dtype=float)
+    result=dict(fit)
+    for iteration in range(21):
+        quality=spectrum_map_quality(point,q,pg,groups)
+        result.update(theta=point.tolist(),newton_polish_steps=iteration,**quality)
+        if quality['newton_distance']<=.001 or quality['covariance'] is None:return result
+        value,gradient=target(point,q,pg,groups)
+        step=np.asarray(quality['covariance'])@gradient
+        for fraction in 2.**-np.arange(25):
+            candidate=point-fraction*step
+            if abs(candidate[0])<1 and target(candidate,q,pg,groups)[0]<=value+1e-9:
+                point=candidate;break
+        else:return result
+    return result
 
 
 def null_objective(z,q,pg):
@@ -113,31 +172,59 @@ def fit_null_spectrum(q,pg,initial):
                 null_hessian_eigenvalues=quality['hessian_eigenvalues'],null_attempts=attempts)
 
 
-def fit_spectrum(q,pg,groups=1):
-    bounds=[(-.99999999,.99999999),(-30.,10.),(-30.,20.),(-2.,2.)]
-    def optimize(q,pg,starts):
-        def objective(t):
-            v,g=target(t,q,pg,groups)
-            return v/len(q),g/len(q)
-        results=[minimize(objective,x,jac=True,bounds=bounds,method='L-BFGS-B',
-                           options={'maxiter':1000,'ftol':1e-14,'gtol':1e-10}) for x in starts]
-        return min(results,key=lambda r:r.fun)
-    pilot=optimize(q[::64],pg[::64],[np.array(s) for s in
-        [[-.2,-5.,0.,.1],[-.2,-7.,0.,-.1],[0.,-3.,0.,.3],[-.5,-10.,0.,-.3],[.3,-5.,0.,-.2]]])
-    best=optimize(q,pg,[pilot.x])
-    hessian=np.empty((4,4))
-    for j in range(4):
-        delta=np.zeros(4);delta[j]=1e-5
-        hessian[:,j]=(target(best.x+delta,q,pg,groups)[1]-target(best.x-delta,q,pg,groups)[1])/(2e-5)
-    hessian=(hessian+hessian.T)/2;eigen=np.linalg.eigvalsh(hessian)
-    gradient=target(best.x,q,pg,groups)[1]
-    decrement=float(np.sqrt(gradient@np.linalg.solve(hessian,gradient))) if eigen.min()>0 else float('inf')
-    # The d=0 null removes the unidentified lambda coordinate, as in the manuscript.
-    short=fit_null_spectrum(q,pg,[best.x[0],best.x[2]])
-    return dict(theta=best.x.tolist(),optimizer_success=bool(best.success),message=str(best.message),
-                hessian_eigenvalues=eigen.tolist(),newton_distance=decrement,
-                **short,
-                covariance=np.linalg.inv(hessian).tolist() if eigen.min()>0 else None)
+def optimize_spectrum_start(start,q,pg,groups=1):
+    """Expand computational search bounds when active; keep the native prior."""
+    bounds=np.array([[-1+1e-10,1-1e-10],[-30.,10.],[-30.,20.],[-2.,2.]])
+    point=np.asarray(start,dtype=float)
+    bounds[1:,0]=np.minimum(bounds[1:,0],point[1:]-1)
+    bounds[1:,1]=np.maximum(bounds[1:,1],point[1:]+1)
+    def objective(t):
+        value,gradient=target(t,q,pg,groups)
+        return value/len(q),gradient/len(q)
+    for expansion in range(5):
+        best=minimize(objective,point,jac=True,bounds=bounds,method='L-BFGS-B',
+            options={'maxiter':1000,'ftol':1e-14,'gtol':1e-10,'maxls':100})
+        point=best.x
+        low=point[1:]<=bounds[1:,0]+1e-6
+        high=point[1:]>=bounds[1:,1]-1e-6
+        if not (low|high).any():break
+        if expansion<4:
+            width=bounds[1:,1]-bounds[1:,0]
+            bounds[1:,0]-=low*width;bounds[1:,1]+=high*width
+    return refine_spectrum_map(dict(theta=point.tolist(),optimizer_success=bool(best.success),
+        message=str(best.message),search_bounds=bounds.tolist(),search_expansions=expansion),q,pg,groups)
+
+
+def fit_spectrum(q,pg,groups=1,starts=None):
+    """Compare distinct candidate modes on every assigned frequency.
+
+    A thinned pilot supplies initial points only. Every selected pilot mode,
+    both near-cancellation starts, and supplied full-data starts are optimized
+    and compared on the actual complete shard. No likelihood subsampling or
+    change to the prior enters the final fit.
+    """
+    q,pg=np.asarray(q,dtype=float),np.asarray(pg,dtype=float)
+    if q.ndim!=1 or q.shape!=pg.shape or not len(q) or groups<1:
+        raise ValueError('Require matching nonempty frequency arrays and positive groups')
+    defaults=[[-.2,-5.,0.,.1],[-.2,-7.,0.,-.1],[0.,-3.,0.,.3],
+              [-.5,-10.,0.,-.3],[.3,-5.,0.,-.2],[-.99,-4.,0.,.9],[-.999,-5.,0.,.95]]
+    pilot=[optimize_spectrum_start(s,q[::64],pg[::64],groups) for s in defaults]
+    candidates=[]
+    for candidate in sorted(pilot,key=lambda x:x['negative_log_posterior']):
+        point=np.asarray(candidate['theta'])
+        if np.isfinite(point).all() and not any(np.linalg.norm((point-s)/[.05,2.,.05,.1])<1 for s in candidates):
+            candidates.append(point)
+    candidates.extend(np.array(s,dtype=float) for s in defaults[-2:])
+    if starts is not None:candidates.extend(np.array(s,dtype=float) for s in starts)
+    fits=[optimize_spectrum_start(s,q,pg,groups) for s in candidates]
+    fits.sort(key=lambda x:x['negative_log_posterior'])
+    best=dict(fits[0])
+    # Do not silently accept a worse resolved mode over a better unresolved one.
+    best['map_candidates']=fits
+    best['full_frequency_starts']=len(fits)
+    short=fit_null_spectrum(q,pg,[best['theta'][0],best['theta'][2]])
+    best.update(short)
+    return best
 
 
 def increment_predictor(parameters,context,horizon,fractional=True):

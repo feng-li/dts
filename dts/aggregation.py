@@ -33,10 +33,23 @@ def simple_average(draws: Iterable[np.ndarray]) -> np.ndarray:
     return np.mean(np.stack(draw_list, axis=0), axis=0)
 
 
-def consensus(draws: Iterable[np.ndarray], ridge: float = 1e-8) -> np.ndarray:
-    """Precision-weighted consensus Monte Carlo aggregation."""
+def consensus(draws: Iterable[np.ndarray], ridge: float = 1e-8, *,
+              covariances: Iterable[np.ndarray] | None = None) -> np.ndarray:
+    """Precision-weighted consensus, optionally using supplied covariance estimates."""
     draw_list = _as_draw_list(draws)
-    weights = [np.linalg.inv(regularized_cov(item, ridge=ridge)) for item in draw_list]
+    if covariances is None:
+        weights = [np.linalg.inv(regularized_cov(item, ridge=ridge)) for item in draw_list]
+    else:
+        matrices = [np.asarray(item, dtype=float) for item in covariances]
+        dimension = draw_list[0].shape[1]
+        if len(matrices) != len(draw_list):
+            raise ValueError('One covariance matrix is required per shard')
+        for matrix in matrices:
+            if (matrix.shape != (dimension, dimension) or not np.isfinite(matrix).all()
+                    or not np.allclose(matrix, matrix.T, rtol=1e-10, atol=1e-14)):
+                raise ValueError('Covariance matrices must be finite, symmetric and match the draws')
+            np.linalg.cholesky(matrix)
+        weights = [np.linalg.inv((matrix+matrix.T)/2 + ridge*np.eye(dimension)) for matrix in matrices]
     precision = np.sum(weights, axis=0)
     precision_inv = np.linalg.inv(precision)
     weighted_sum = np.sum([item @ weight.T for item, weight in zip(draw_list, weights)], axis=0)

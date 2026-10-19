@@ -38,8 +38,8 @@ To cite the paper:
 
 - `dts/`: reusable Python package.
 - `scripts/`: entry points for replication and Spark workflows.
-- `scripts/liquidity/`: CSI 300 liquidity construction, audits, forecasts, and plots; see the [script catalog](LIQUIDITY.md) and [workflow guide](scripts/liquidity/README.md).
-- `projects/liquidity/`: shared liquidity models and order-book reconstruction.
+- `HighFrequencyLiquidity/`: optional Git submodule for liquidity construction, weights and replay validation.
+- `scripts/liquidity/`: CSI 300 forecasting experiments and paper figures; see the [script catalog](LIQUIDITY.md) and [workflow guide](scripts/liquidity/README.md).
 - `data/`: input data used by examples and experiments.
 - `docs/`: manuscript sources and supporting replication notes.
 - `results/`: generated outputs from benchmark runs.
@@ -69,8 +69,23 @@ script paths. Additional moves are recorded in
 ## Environment
 
 - Python: >= 3.9
-- Core dependencies: `numpy`, `scipy`, `pandas`, `jax`, `autograd`, `ray`, `statsmodels`, `tqdm`, `matplotlib`, `pyspark`.
+- Core dependencies: `numpy`, `scipy`, `pandas`, `jax`, `autograd`, `numba`, `pyarrow`, `ray`, `statsmodels`, `tqdm`, `matplotlib`, `pyspark`.
 - The codebase is designed for Unix-like environments; Spark workflows require a working Spark installation and Java runtime for your Spark distribution.
+
+Forecasting from supplied, prepared liquidity data needs only DTS. A normal
+`git clone git@github.com:feng-li/dts.git` is sufficient; leave the construction
+submodule uninitialised. See the [forecast-only workflow](LIQUIDITY.md#forecast-from-supplied-data).
+
+If you also want to construct liquidity data from Level 2 records, initialise
+the optional pinned submodule:
+
+```sh
+git submodule update --init --recursive
+```
+
+`git clone --recurse-submodules git@github.com:feng-li/dts.git` includes the
+construction source as well. Construction inputs and tests are maintained in
+that submodule; modelling and forecasting remain in DTS.
 
 Install the package in editable mode:
 

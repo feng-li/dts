@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 /artifacts
 /results
+/tests
 /output
 /tmp
 /.pytest_cache
