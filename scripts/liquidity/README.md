@@ -1,45 +1,116 @@
-# Liquidity forecasting experiments
+# Liquidity forecasting and timing experiments
 
-This folder contains the DTS CSI 300 modelling, rolling forecasts, benchmarks,
-reports and paper figures. Construction, weights, replay and construction tests
-are maintained in the root [`HighFrequencyLiquidity/`](../../HighFrequencyLiquidity/README.md)
-Git submodule, which is optional when forecasting from supplied data.
+Run commands from the DTS repository root. Generated data, checkpoints, reports
+and figures belong under `~/running/dts/`. Forecasting from supplied liquidity
+data requires only DTS; construction and validation of Level 2 data belong in
+the optional root `HighFrequencyLiquidity/` submodule.
 
-## Forecast from given data
+See [LIQUIDITY.md](../../LIQUIDITY.md) for the prepared-data contract, forecasting
+scripts, paper figures and construction interface. The existing builder/export
+filenames are compatibility entry points into the submodule. Local copies of
+older construction scripts are not part of the DTS replication workflow.
 
-Use the supplied `spread.npy`, `input_manifest.json` and `contiguous_runs.csv`.
-The forecasting scripts have no dependency on HighFrequencyLiquidity:
+## Forecasts from supplied data
 
-1. Create the rolling plan with `plan_csi300_boundary_forecasts.py --input PATH`.
-2. Run the daily forecasting experiment or resume the saved Spark configuration.
-3. Add ARIMA benchmarks and regenerate application figures from saved forecasts.
+The active forecasting entry point is `compare_csi300_boundary_spark.py`.
+Resume the saved G=20 experiment with its own settings:
 
-The daily runner accepts `--input` and `--plan`. The Spark runner uses the saved
-DTS reference experiment selected by `--reference`. Its modelling checkpoints
-are separate from liquidity construction. A normal Git clone is sufficient.
-
-## Optional construction and export
-
-To build liquidity from Level 2 records or export a daily index archive,
-initialise the pinned construction source from the DTS root:
-
-```bash
-git submodule update --init --recursive
+```sh
+python -u scripts/liquidity/compare_csi300_boundary_spark.py \
+  --config ~/running/dts/artifacts/liquidity/csi300_boundary_spark_g20_full1000_onechain_v5/run_config.json
 ```
 
-Use `run_construction.py COMMAND [OPTIONS]` for construction/audits, then
-`prepare_csi300_dc.py` to export the forecasting input directory.
+`compare_csi300_boundary_random_days.py` retains the original Ray experiment.
+`compare_csi300_boundary_arima110.py` and `compare_csi300_boundary_arima101.py`
+provide the corresponding ARIMA benchmarks. Numerical helpers, source guards,
+reports and figure scripts are catalogued in `LIQUIDITY.md`.
 
-The three construction compatibility entry points are thin wrappers:
-`build_all_csi300_liquidity.py`, `build_csi300_hf_liquidity.py` and
-`prepare_csi300_dc.py`. Their implementation runs inside the submodule in a
-fresh Python process. Inputs default to the submodule's `data/csi300`; outputs
-remain under `~/running/dts/artifacts/liquidity`. `HFL_REPO` selects an explicit
-development checkout when needed.
+Saved configurations determine the actual iteration budget. A separate timing
+experiment does not change the existing 1,000-date forecasts. Different model
+or sampling settings require a separate output directory.
 
-Forecasting code, settings and input/checkpoint checks retain their existing
-paths. Preserve saved arrays and manifests when resuming a fit. The former
-`projects/liquidity/` prototypes were archived before removal.
+## Computation-time comparison
 
-See [LIQUIDITY.md](../../LIQUIDITY.md) for the script catalog, construction/export
-interface, current G=20 resume command, source compatibility and test commands.
+The benchmark requires the saved training responses, reference manifests and
+frozen numerical source archive. It uses every assigned positive frequency,
+independent shard-level MAP fits, and the same compiled fixed-mixture sampler
+for the full posterior and subposteriors. DC has no prerequisite full-data MAP.
+
+| Script | Role |
+| --- | --- |
+| `benchmark_csi300_computation.py` | Fits and times full-data, sequential-DC, parallel-DC and Spark G=1 configurations; saves hashes and monitored results |
+| `_computation_timing.py` | Separates compilation from synchronous MCMC execution without changing the kernel or random stream |
+| `run_csi300_timing_comparison.py` | Runs and resumes the matched timing protocol from a saved configuration |
+| `profile_csi300_timing.py` | Replays fitted proposals after compilation, synchronises workers and checks full-length draws against their references |
+| `report_csi300_timing_comparison.py` | Reports components and keeps full-data, Spark G=1 and sequential-DC speed-ups distinct |
+| `observe_csi300_timing_resources.py` | Records affinities, RSS, swap counters and sampled CPU frequencies |
+| `investigate_csi300_timing.py` | Analyses the critical path and resources; supports short-chain and socket-placement controls |
+| `run_csi300_timing_comparison_pipeline.py` | Resumes a prepared archive through timing, diagnostics, audit and guarded TeX publication |
+| `update_csi300_timing_tex.py` | Updates the comparison after audit and protects concurrent TeX edits |
+
+The current timing specification uses the longest history, 24,300,012 training
+observations before 24 July 2026, with 65,000 iterations and 5,000 burn-in.
+Three timing repetitions compare full-data MCMC on one core with G=20 on twenty
+physical cores. Sequential G=20 and Spark G=1 have one repetition each.
+The MCMC-only and hardware diagnostics use the same selected history.
+
+```sh
+python -u scripts/liquidity/run_csi300_timing_comparison.py \
+  --dates 20260724 --iterations 65000 --burn 5000 \
+  --quiet-seconds 0 --interference-policy record \
+  --out ~/running/dts/artifacts/liquidity/csi300_timing_65000_g20_longest_20261109_v1
+```
+
+Resume the timing stages with the saved configuration:
+
+```sh
+python -u scripts/liquidity/run_csi300_timing_comparison.py \
+  --config ~/running/dts/artifacts/liquidity/csi300_timing_65000_g20_longest_20261109_v1/config.json
+```
+
+`record` retains background-load observations without restarting for brief CPU
+activity; report these as shared-host measurements. The optional strict policy
+uses `--quiet-seconds 60 --interference-policy exclude`. Neither policy stops
+other users' work. Completed cases are verified and skipped on resume.
+
+Outputs include configs, frozen scripts, hashes, raw timing and monitoring
+records, CSV summaries, `timing_table.tex` and `timing_breakdown.pdf`. FFT stage
+times include scheduling, shuffles, grouping, checkpoint writing and validation;
+they are not pure FFT-kernel timings. The native baseline uses SciPy's real FFT;
+the distributed FFT supports NumPy kernels or `--fft-backend jax`. MCMC-loop
+compilation is measured separately from synchronous execution.
+
+The complete publication pipeline additionally requires its prepared
+`pipeline_config.json`, environment and audit snapshots, and `paper_update/`
+manifest/template in the experiment archive. To resume that prepared workflow:
+
+```sh
+python -u scripts/liquidity/run_csi300_timing_comparison_pipeline.py \
+  --input ~/running/dts/artifacts/liquidity/csi300_timing_65000_g20_longest_20261109_v1
+```
+
+Source/configuration guards preserve historical experiments, including the
+35,000-iteration study. The publisher keeps earlier quality scores separate
+from new timing measurements. PDF publication requires LaTeX, Poppler and
+`pdfplumber`; the numerical timing stages do not require those tools.
+
+## Posterior approximation quality
+
+`evaluate_csi300_stein.py` and `_stein_discrepancy.py` evaluate the
+Gorham--Mackey (2015) graph Stein discrepancy against the common full-data
+Whittle posterior using saved draws and frozen numerical sources. This is an
+approximation-quality diagnostic, separate from ESS and inference time.
+
+```sh
+python -u scripts/liquidity/evaluate_csi300_stein.py \
+  --benchmark ~/running/dts/artifacts/liquidity/csi300_computation_independent_maps_20261102_v1 \
+  --out ~/running/dts/artifacts/liquidity/csi300_stein_independent_maps_20261102_v1 \
+  --draws 1500 --workers 20 --lp-workers 4
+```
+
+`report_csi300_independent_timing.py` reproduces the earlier short-chain note
+from that benchmark and its matching quality output. Those older quality scores
+must not be relabelled as results of the new 65,000-iteration study.
+
+Compatibility modules `_source_compat.py`, `_source_relocation.json` and
+`scripts/__init__.py` preserve earlier forecast imports and source guards.

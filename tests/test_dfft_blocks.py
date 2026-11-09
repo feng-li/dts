@@ -1,4 +1,5 @@
 import os
+import sys
 
 import numpy as np
 import pytest
@@ -8,6 +9,7 @@ from dts.dfft_blocks import collect_block_spectrum, spark_fft_contiguous_blocks
 
 
 os.environ.setdefault("SPARK_LOCAL_HOSTNAME", "localhost")
+os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
 
 
 @pytest.fixture(scope="module")
@@ -27,7 +29,8 @@ def spark():
     ("series_length", "partitions"),
     [(64, 1), (256, 4), (1024, 8), (1024, 128), (4096, 16), (360, 6)],
 )
-def test_block_fft_matches_numpy_for_real_input(spark, series_length, partitions):
+@pytest.mark.parametrize("backend", ["numpy", "jax"])
+def test_block_fft_matches_numpy_for_real_input(spark, series_length, partitions, backend):
     rng = np.random.default_rng(20260804 + series_length + partitions)
     values = rng.normal(size=series_length)
     block_size = series_length // partitions
@@ -40,13 +43,16 @@ def test_block_fft_matches_numpy_for_real_input(spark, series_length, partitions
         spark.sparkContext.parallelize(blocks, partitions),
         series_length,
         partitions,
+        backend=backend,
     )
     actual = collect_block_spectrum(result_rdd, series_length, partitions)
 
     np.testing.assert_allclose(actual, np.fft.fft(values), rtol=1e-11, atol=1e-11)
+    assert actual.dtype == np.complex128
 
 
-def test_block_fft_matches_numpy_for_complex_input(spark):
+@pytest.mark.parametrize("backend", ["numpy", "jax"])
+def test_block_fft_matches_numpy_for_complex_input(spark, backend):
     series_length = 2048
     partitions = 8
     rng = np.random.default_rng(271828)
@@ -61,7 +67,13 @@ def test_block_fft_matches_numpy_for_complex_input(spark):
         spark.sparkContext.parallelize(blocks, partitions),
         series_length,
         partitions,
+        backend=backend,
     )
     actual = collect_block_spectrum(result_rdd, series_length, partitions)
 
     np.testing.assert_allclose(actual, np.fft.fft(values), rtol=1e-11, atol=1e-11)
+
+
+def test_unknown_backend_fails_before_spark_work():
+    with pytest.raises(ValueError, match="FFT backend"):
+        spark_fft_contiguous_blocks(None, 64, 4, backend="unknown")

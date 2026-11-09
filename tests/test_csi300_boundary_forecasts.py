@@ -72,8 +72,8 @@ def test_configuration_rejects_invalid_sampling_arguments(tmp_path):
         parse_arguments(['--days', '1001'])
 
 
-def test_resume_rejects_new_map_search_over_old_sampling_results(tmp_path):
-    import hashlib, json, pytest
+def test_resume_retains_provenance_for_reviewed_fix_only(tmp_path):
+    import hashlib, json
     from pathlib import Path
     from scripts.liquidity.compare_csi300_boundary_random_days import LEGACY_SOURCE_SHA256, register_protocol
     source = Path(__file__).resolve().parents[1]/'scripts/liquidity'
@@ -85,11 +85,11 @@ def test_resume_rejects_new_map_search_over_old_sampling_results(tmp_path):
     (folder/'fit.json').write_text('{}')
     path.write_text(json.dumps(dict(days=1000, source_sha256=LEGACY_SOURCE_SHA256)))
     config = dict(days=1000, source_sha256=current)
-    with pytest.raises(ValueError,match='incompatible'):
-        register_protocol(path, config)
+    register_protocol(path, config)
     saved = json.loads(path.read_text())
-    assert saved['source_sha256'] == LEGACY_SOURCE_SHA256
-    assert 'source_history' not in saved
+    assert saved['source_history'][0]['previous'] == LEGACY_SOURCE_SHA256
+    register_protocol(path, dict(days=1000, source_sha256=current))
+    assert len(json.loads(path.read_text())['source_history']) == 1
 
 
 def test_resume_rejects_changed_inference_configuration(tmp_path):

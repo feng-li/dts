@@ -1,4 +1,4 @@
-"""Distributed FFT using NumPy-array block records.
+"""Distributed FFT using array block records and NumPy or JAX local kernels.
 
 Input records are ``(block_id, values)`` pairs. There must be ``P`` records,
 each containing a contiguous block of ``T / P`` time-domain values. Output
@@ -13,9 +13,53 @@ the frequency coefficients.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any, Iterable, Iterator
 
 import numpy as np
+
+
+@lru_cache(maxsize=1)
+def _jax_fft_kernels():
+    """Keep JIT functions alive across reused Spark worker tasks."""
+    from dts._jax import configure_jax
+
+    configure_jax()
+    import jax
+    import jax.numpy as jnp
+
+    @jax.jit
+    def first_stage(sequence, phase):
+        frequencies = jnp.arange(sequence.shape[0], dtype=jnp.float64)
+        return jnp.fft.fft(sequence) * jnp.exp(phase * frequencies)
+
+    @jax.jit
+    def last_stage(matrix):
+        return jnp.fft.fft(matrix, axis=0)
+
+    return first_stage, last_stage
+
+
+def _local_fft(sequence, strided_block, series_length, backend):
+    if backend == "jax":
+        first_stage, _ = _jax_fft_kernels()
+        phase = complex(-2j * np.pi * strided_block / series_length)
+        result = first_stage(sequence, phase)
+        # Synchronize before returning host arrays for Spark serialization.
+        return np.asarray(result.block_until_ready())
+    transformed = np.fft.fft(sequence)
+    if strided_block:
+        frequencies = np.arange(sequence.size, dtype=np.float64)
+        transformed *= np.exp((-2j * np.pi * strided_block / series_length) * frequencies)
+    return transformed
+
+
+def _finish_fft(matrix, backend):
+    if backend == "jax":
+        _, last_stage = _jax_fft_kernels()
+        result = last_stage(matrix)
+        return np.asarray(result.block_until_ready())
+    return np.fft.fft(matrix, axis=0)
 
 
 def _frequency_bounds(block_id: int, block_size: int, partitions: int) -> tuple[int, int]:
@@ -29,6 +73,8 @@ def spark_fft_contiguous_blocks(
     block_rdd: Any,
     series_length: int,
     partitions: int,
+    *,
+    backend: str = "numpy",
 ) -> Any:
     """Compute an unnormalised forward FFT from contiguous array blocks.
 
@@ -41,12 +87,18 @@ def spark_fft_contiguous_blocks(
         Total number of time-domain observations.
     partitions
         Number of input and output block records.
+    backend
+        ``"numpy"`` (default) or ``"jax"``. JAX JIT-compiles the two local
+        numerical stages in 64-bit precision; shuffles and block layout are
+        unchanged. First-use compilation is not hidden or pre-warmed here.
 
     Returns
     -------
     RDD
         Block-cyclic frequency records described in the module docstring.
     """
+    if backend not in {"numpy", "jax"}:
+        raise ValueError("FFT backend must be 'numpy' or 'jax'")
     if series_length <= 0:
         raise ValueError("series_length must be positive")
     if partitions <= 0:
@@ -99,12 +151,7 @@ def spark_fft_contiguous_blocks(
         if cursor != block_size:
             raise ValueError(f"incomplete input for block {strided_block}")
 
-        transformed = np.fft.fft(sequence)
-        if strided_block:
-            frequencies = np.arange(block_size, dtype=np.float64)
-            transformed *= np.exp(
-                (-2j * np.pi * strided_block / series_length) * frequencies
-            )
+        transformed = _local_fft(sequence, strided_block, series_length, backend)
         return int(strided_block), transformed
 
     first_stage = strided_chunks.groupByKey(numPartitions=partitions).map(local_fft)
@@ -151,7 +198,7 @@ def spark_fft_contiguous_blocks(
         if len(seen) != partitions:
             raise ValueError(f"incomplete frequency block {output_block}")
 
-        return int(output_block), (expected_start, np.fft.fft(matrix, axis=0))
+        return int(output_block), (expected_start, _finish_fft(matrix, backend))
 
     return frequency_chunks.groupByKey(numPartitions=partitions).map(finish_fft)
 
