@@ -9,6 +9,3 @@ __pycache__/
 /.eggs
 /README.html
 
-# Keep regression tests visible even when a global ignore excludes tests/.
-!/tests/
-!/tests/test_*.py
