@@ -52,7 +52,13 @@ def forecast_sample_masks(dates, forecast_root, manifest_sha256):
 
 
 def draw(profiles, compact, raw=None, y_scale='linear', vector=False):
-    plt.rcParams.update({'font.size': 8 if compact else 10, 'pdf.fonttype': 42,
+    # The full-size export is reduced from 11.7 to about 6.14 inches in TeX.
+    # Scale its typography accordingly so labels remain about 11 pt in print.
+    font = 11 if compact else 21
+    plt.rcParams.update({'font.size': font, 'axes.labelsize': font,
+                         'xtick.labelsize': font, 'ytick.labelsize': font,
+                         'font.family': 'serif', 'font.serif': ['Times New Roman', 'STIXGeneral'],
+                         'mathtext.fontset': 'stix', 'pdf.fonttype': 42,
                          'axes.spines.top': False, 'axes.spines.right': False})
     fig, axes = plt.subplots(2, 1, figsize=(6.14, 3.7) if compact else (11.7, 8.3),
                              sharey=raw is None or y_scale == 'log')
@@ -102,14 +108,14 @@ def draw(profiles, compact, raw=None, y_scale='linear', vector=False):
                       ('Spread / daily mean' if compact else 'Spread / same-day mean'))
         panel_label = f'Since {date_range.split(" to ")[0]}' if compact and label == 'Recent period' else label
         title = f'({chr(97+i)}) {panel_label}'
-        ax.set_title(title, loc='left', fontsize=8.5 if compact else 11, pad=5)
+        ax.set_title(title, loc='left', fontsize=font, pad=7)
         if not compact:
             ax.text(1., 1.015, date_range, transform=ax.transAxes,
-                    ha='right', va='bottom', fontsize=9, color='#62748a')
+                    ha='right', va='bottom', fontsize=font-1, color='#62748a')
     if compact:
-        fig.subplots_adjust(left=.11, right=.985, top=.94, bottom=.105, hspace=.53)
+        fig.subplots_adjust(left=.13, right=.98, top=.92, bottom=.13, hspace=.67)
     else:
-        fig.subplots_adjust(left=.08, right=.96, top=.95, bottom=.075, hspace=.40)
+        fig.subplots_adjust(left=.13, right=.98, top=.94, bottom=.10, hspace=.53)
     return fig
 
 
@@ -191,6 +197,7 @@ def main():
                     input_manifest_sha256=manifest_sha256, samples=counts,
                     style=args.style, y_scale=args.y_scale, daily_coverage=.95,
                     figure_title=False, footer_notes=False, panel_day_counts=False,
+                    typography='Times New Roman; 21 pt full-size, 11 pt compact; about 11 pt at manuscript width',
                     normalization=('None; raw basis-point values' if args.style == 'scatter' else
                                    'Observed spread divided by its same-day observed-grid mean, then arithmetic minute mean'),
                     clock='Lunch removed; AM and PM drawn separately; no data after 14:57',
@@ -214,10 +221,12 @@ def main():
         fig = draw(profiles, compact, raw=raw if args.style == 'scatter' else None,
                    y_scale=args.y_scale, vector=args.vector)
         path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(path, dpi=200 if args.style == 'scatter' else 100,
+        temporary_pdf = path.with_name(f'.{path.stem}.{os.getpid()}.tmp.pdf')
+        fig.savefig(temporary_pdf, dpi=200 if args.style == 'scatter' else 100,
                     metadata={'Title': 'Liquidity around session boundaries | RMB 1m spread',
                                     'Subject': f'{"Initial training and evaluated test dates" if args.forecast_root else "All history and recent period from " + args.recent_start}; {args.style}; {args.y_scale} axis',
                                     'Creator': Path(__file__).name})
+        temporary_pdf.replace(path)
         plt.close(fig)
         print(path, flush=True)
     print(json.dumps(counts, indent=2))

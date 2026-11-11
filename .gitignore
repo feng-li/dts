@@ -9,3 +9,27 @@ __pycache__/
 /.eggs
 /README.html
 
+# Construction inputs and legacy copies are maintained in HighFrequencyLiquidity.
+/data/csi300/
+/scripts/liquidity/archive/
+/scripts/liquidity/audit_csi300_missing_dates.py
+/scripts/liquidity/audit_shanghai_replay.py
+/scripts/liquidity/check_csi300_incremental_results.py
+/scripts/liquidity/correct_historical_liquidity_books.py
+/scripts/liquidity/csi300_backprop_weights.py
+/scripts/liquidity/csi300_build_history.py
+/scripts/liquidity/csi300_download_prices_bs.py
+/scripts/liquidity/csi300_fetch_announcements.py
+/scripts/liquidity/csi300_fetch_latest_official_weights.py
+/scripts/liquidity/csi300_incremental.py
+/scripts/liquidity/csi300_liquidity_fast.py
+/scripts/liquidity/diagnose_historical_liquidity_books.py
+/scripts/liquidity/diagnose_shanghai_2020_gaps.py
+/scripts/liquidity/plot_csi300_sample_days.py
+/scripts/liquidity/repair_csi300_feed_quality.py
+/scripts/liquidity/report_csi300_archive.py
+/scripts/liquidity/report_csi300_liquidity.py
+/scripts/liquidity/run_csi300_liquidity_fast.py
+/scripts/liquidity/run_shanghai_liquidity_validation.py
+/scripts/liquidity/summarize_csi300_hf_liquidity.py
+

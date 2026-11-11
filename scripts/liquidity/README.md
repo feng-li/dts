@@ -29,6 +29,18 @@ Saved configurations determine the actual iteration budget. A separate timing
 experiment does not change the existing 1,000-date forecasts. Different model
 or sampling settings require a separate output directory.
 
+## Paper figures
+
+`plot_csi300_liquidity_session_profile.py` generates the training/test spread
+panels. `plot_csi300_paper_rmse.py` regenerates the current G=20 RMSE-reduction
+figure from the audited `review_20261016` summaries, checking their forecast
+and comparison hashes. Its drawing code is shared with
+`plot_csi300_liquidity_forecast_errors.py`, which retains the paired bootstrap
+implementation and `--ray-actors` option for the original matched archive.
+
+See the root [paper-output index](../../README.md#paper-outputs) for links to
+the manuscript figures, forecast score table and supporting comparison values.
+
 ## Computation-time comparison
 
 The benchmark requires the saved training responses, reference manifests and
